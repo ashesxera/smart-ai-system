@@ -1,7 +1,7 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.0
+- 版本：v3.1
 - 创建时间：2026-04-20
 - 更新时间：2026-04-21
 - 目标系统：通用异步AI任务系统
@@ -235,10 +235,8 @@ CREATE TABLE tasks (
     -- API参数（JSON）
     parameters TEXT,                          -- 提交给供应商的参数
     
-    -- 结果信息
-    result_url TEXT,                          -- 结果文件URL
-    result_format TEXT,                       -- 结果格式
-    result_size INTEGER,                      -- 结果文件大小
+    -- 结果信息（JSON）
+    result_files TEXT,                       -- 结果文件列表：[{"file_name": "a.glb", "file_format": "glb", "file_size": 123456, "tos_path": "...", "download_url": "..."}]
     
     -- 分享链接
     share_url TEXT,                           -- 分享链接
@@ -340,54 +338,7 @@ CREATE INDEX idx_vendors_priority ON ai_vendors(priority DESC);
 
 ---
 
-### 4.6 task_results（任务结果表）
-
-**用途**：存储任务的处理结果
-
-```sql
-CREATE TABLE task_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    
-    -- 关联任务
-    task_id TEXT NOT NULL UNIQUE,             -- 任务ID
-    
-    -- 结果类型
-    result_type TEXT NOT NULL,                -- model / file / url / error
-    
-    -- 文件信息
-    file_name TEXT,                           -- 结果文件名
-    file_format TEXT,                         -- 文件格式
-    file_size INTEGER,                        -- 文件大小
-    
-    -- 存储信息
-    tos_path TEXT,                            -- TOS存储路径
-    
-    -- URL信息
-    download_url TEXT,                        -- 下载URL
-    preview_url TEXT,                         -- 预览URL
-    share_url TEXT,                           -- 分享链接
-    share_expires_at INTEGER,                  -- 分享链接过期时间
-    
-    -- 供应商返回信息
-    vendor_response TEXT,                     -- 供应商完整响应（JSON）
-    
-    -- 元数据
-    metadata TEXT,                            -- 额外元数据（JSON）
-    
-    -- 时间戳
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    
-    -- 外键约束
-    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
-);
-
--- 索引
-CREATE INDEX idx_results_task_id ON task_results(task_id);
-```
-
----
-
-### 4.7 operations（操作日志表）
+### 4.6 operations（操作日志表）
 
 **用途**：记录所有关键操作
 
@@ -465,12 +416,11 @@ CREATE INDEX idx_settings_category ON settings(category);
                              │ N                   │ 1
                              ▼                     ▼
                     ┌──────────────┐       ┌──────────────┐
-                    │material_     │       │ task_results │
-                    │resources     │       │    结果      │
-                    │   资源       │       └──────────────┘
-                    └──────────────┘
-                    
-                    operations ──────< tasks
+                    │material_     │
+                    │resources     │       │ operations   │
+                    │   资源       │       │ 操作日志     │
+                    └──────────────┘       └──────────────┘
+
                     settings 独立
 ```
 
@@ -491,7 +441,6 @@ CREATE INDEX idx_settings_category ON settings(category);
 | material_resources | 资源表 | N ← 1 材料 |
 | tasks | 任务表 | N ← 1 材料, N ← 1 供应商 |
 | ai_vendors | 供应商表 | - |
-| task_results | 结果表 | 1 ← 1 任务 |
 | operations | 操作日志表 | N ← 1 任务 |
 | settings | 系统配置表 | 独立 |
 
@@ -568,6 +517,10 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## 9. 变更日志
 
+### v3.1 (2026-04-21)
+- 删除 task_results 表
+- tasks 表增加 result_files JSON 字段，支持多个结果文件
+
 ### v3.0 (2026-04-21)
 - 重新梳理ER关系：委托人 → 材料(1:N) → 任务(M:N) → 供应商(N:1)
 - 材料表新增 semantic 字段：对话语义理解
@@ -577,7 +530,6 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ### v2.1 (2026-04-21)
 - 引入 materials/material_resources 表
-- 新增 task_results 表
 
 ### v2.0 (2026-04-21)
 - 新增 delegators 表
@@ -591,5 +543,5 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v3.0
+- 文档版本：v3.1
 - 最后更新：2026-04-21
