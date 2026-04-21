@@ -1,164 +1,378 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v1.1
+- 版本：v3.0
 - 创建时间：2026-04-20
-- 更新时间：2026-04-20 17:53
+- 更新时间：2026-04-21
 - 目标系统：通用异步AI任务系统
 - 数据库类型：SQLite 3
 
 ---
 
-## 1. 设计背景
+## 1. 核心概念
 
-本数据库设计服务于**通用异步AI任务系统**，支持通过飞书对话提交各类异步AI生成任务（3D建模、音频生成、视频生成等）。
+### 1.1 业务模型
 
-### 设计目标
+```
+委托人 ─── 1:N ─── 材料 ─── M:N ─── 任务 ─── N:1 ─── 供应商
+```
 
-| 目标 | 说明 |
+### 1.2 术语定义
+
+| 术语 | 英文 | 说明 |
+|------|------|------|
+| 委托人 | Delegator | 提交任务的用户，抽象多渠道 |
+| 材料 | Material | 委托的材料（含语义理解+资源+参数） |
+| 任务 | Task | 材料委托给供应商生产的AI产品 |
+| 供应商 | Vendor | AI服务供应商（供应商+模型） |
+
+### 1.3 核心关系
+
+| 关系 | 说明 |
 |------|------|
-| 通用性 | 支持多种AI任务类型（3D/音频/视频） |
-| 可扩展性 | 新增任务类型只需配置，无需改表结构 |
-| 可追溯性 | 完整记录素材、成品、操作过程 |
-| 可靠性 | 并发安全、完整日志、支持重试 |
+| 委托人 → 材料 | 1对多 |
+| 材料 → 任务 | 1对多，一份材料可分发给多个任务 |
+| 任务 → 供应商 | 多对一 |
+| 材料 ↔ 供应商 | 多对多，通过任务连接 |
+
+### 1.4 解耦设计
+
+| 角色 | 职责 | 不关心 |
+|------|------|--------|
+| 委托人 | 提交材料、查看状态、获取结果 | 具体用哪个供应商 |
+| 供应商 | 接收材料、处理、返回结果 | 谁提交的 |
+| 系统 | 匹配调度、状态跟踪、结果分发 | - |
 
 ---
 
-## 2. 支持的任务类型
+## 2. 材料定义
 
-| 任务类型 | task_type | 示例API |
-|----------|-----------|---------|
-| 3D建模 | 3d_model | Meshy.AI、火山引擎（豆包/影眸/数美）、Tripo3D |
+```
+Material（材料）= 
+├── 对话语义 (Semantic)
+│   ├── 原始输入：用户怎么说的
+│   ├── 意图理解：用户想要什么
+│   └── 参数提取：从对话中解析出的参数
+├── 资源 (Resources)
+│   └── 图片/视频/音频/URL/文件
+└── 参数 (Parameters)
+    └── API配置参数
+```
+
+---
+
+## 3. 支持的任务类型
+
+| 任务类型 | task_type | 示例Vendor |
+|----------|-----------|------------|
+| 3D建模 | 3d_model | Meshy.AI、火山引擎、Tripo3D |
 | 音频生成 | audio | TTS、语音合成 |
 | 视频生成 | video | 视频生成、AI剪辑 |
 
 ---
 
-## 3. 数据库表结构
+## 4. 数据库表结构
 
-### 3.1 tasks（任务主表）
+### 4.1 delegators（委托人表）
 
-**用途**：存储所有AI任务的核心信息
+**用途**：存储委托人多渠道用户信息
+
+```sql
+CREATE TABLE delegators (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- 委托人标识
+    delegator_id TEXT NOT NULL UNIQUE,          -- 系统内部的委托人ID
+    
+    -- 渠道信息
+    channel_type TEXT NOT NULL,                  -- 渠道类型：feishu / wecom / telegram / webchat
+    channel_user_id TEXT NOT NULL,              -- 渠道原始用户ID
+    
+    -- 用户信息（冗余存储）
+    user_name TEXT,                             -- 用户名称/昵称
+    user_display_name TEXT,                     -- 显示名称
+    
+    -- 通知配置
+    notify_enabled BOOLEAN DEFAULT 1,           -- 是否启用通知
+    notify_channel TEXT,                        -- 通知渠道
+    
+    -- 统计信息
+    total_tasks INTEGER DEFAULT 0,              -- 总提交任务数
+    successful_tasks INTEGER DEFAULT 0,         -- 成功任务数
+    
+    -- 时间戳
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+-- 索引
+CREATE INDEX idx_delegators_channel ON delegators(channel_type, channel_user_id);
+CREATE INDEX idx_delegators_delegator_id ON delegators(delegator_id);
+```
+
+---
+
+### 4.2 materials（材料表）
+
+**用途**：存储委托人的材料（含语义理解+资源+参数）
+
+```sql
+CREATE TABLE materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- 材料标识
+    material_id TEXT NOT NULL UNIQUE,           -- 系统内部的材料ID
+    
+    -- 委托人（外键）
+    delegator_id TEXT NOT NULL,                -- 委托人ID
+    
+    -- 对话语义（JSON）
+    semantic TEXT,                              -- {"原始输入": "", "意图": "", "提取参数": {}}
+    
+    -- 材料摘要（JSON）
+    summary TEXT,                              -- {"资源数": 1, "类型": "image_text"}
+    
+    -- 存储路径
+    tos_path TEXT,                             -- TOS存储路径
+    
+    -- 时间戳
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    
+    -- 外键约束
+    FOREIGN KEY (delegator_id) REFERENCES delegators(delegator_id)
+);
+
+-- 索引
+CREATE INDEX idx_materials_material_id ON materials(material_id);
+CREATE INDEX idx_materials_delegator ON materials(delegator_id);
+CREATE INDEX idx_materials_created ON materials(created_at DESC);
+```
+
+---
+
+### 4.3 material_resources（材料资源表）
+
+**用途**：存储材料中的具体资源
+
+```sql
+CREATE TABLE material_resources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- 关联材料
+    material_id TEXT NOT NULL,                 -- 材料ID
+    
+    -- 资源类型
+    resource_type TEXT NOT NULL,               -- image / text / video / audio / url
+    
+    -- 来源类型
+    source_type TEXT NOT NULL,                -- channel_file / url / base64 / text
+    
+    -- 渠道信息
+    channel_type TEXT,                        -- 渠道类型：feishu / wecom / telegram
+    file_key TEXT,                           -- 渠道file_key
+    
+    -- 文件信息
+    file_name TEXT,                          -- 文件名
+    file_size INTEGER,                       -- 文件大小（字节）
+    file_mime_type TEXT,                     -- MIME类型
+    
+    -- URL信息
+    source_url TEXT,                         -- 原始URL
+    
+    -- 文本内容
+    text_content TEXT,                       -- 文本内容
+    
+    -- 存储信息
+    tos_path TEXT,                           -- TOS存储路径
+    local_tmp_path TEXT,                     -- 本地临时路径
+    
+    -- 资源顺序
+    resource_order INTEGER DEFAULT 1,         -- 资源顺序
+    
+    -- 时间戳
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    
+    -- 外键约束
+    FOREIGN KEY (material_id) REFERENCES materials(material_id) ON DELETE CASCADE
+);
+
+-- 索引
+CREATE INDEX idx_mr_material_id ON material_resources(material_id);
+CREATE INDEX idx_mr_type ON material_resources(resource_type);
+```
+
+---
+
+### 4.4 tasks（任务表）
+
+**用途**：存储任务信息，连接材料和供应商
 
 ```sql
 CREATE TABLE tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     
     -- 任务标识
-    task_id TEXT NOT NULL UNIQUE,              -- 系统生成的任务ID
+    task_id TEXT NOT NULL UNIQUE,             -- 系统内部的任务ID
     
-    -- 任务类型（区分不同AI任务）
-    task_type TEXT NOT NULL,                   -- 3d_model / audio / video
+    -- 材料（外键）
+    material_id TEXT NOT NULL,                -- 材料ID
     
-    -- API信息（多对一关系：一个task属于一个API）
-    provider TEXT NOT NULL,                    -- API提供商标识
-    api_task_id TEXT,                          -- API返回的原始任务ID
-    api_id TEXT NOT NULL,                      -- 关联的API配置ID
+    -- 供应商（外键）
+    vendor_id TEXT NOT NULL,                  -- 供应商ID
     
-    -- 提交者信息
-    submitter_id TEXT NOT NULL,                 -- 飞书用户ID
-    submitter_name TEXT,                       -- 提交者姓名
-    submitter_user_name TEXT,                  -- 飞书昵称（冗余存储，便于显示）
-    notify_chat_id TEXT NOT NULL,               -- 飞书群聊ID（用于通知）
+    -- 供应商返回的任务ID
+    vendor_task_id TEXT,                      -- 供应商任务ID
     
     -- 任务状态
-    status TEXT NOT NULL DEFAULT 'pending',     -- pending/queued/running/succeeded/failed/cancelled/error/timeout
-    status_message TEXT,                        -- 状态描述/错误信息
+    status TEXT NOT NULL DEFAULT 'pending',    -- pending/submitting/queued/running/succeeded/failed/cancelled/error/timeout
+    status_message TEXT,                      -- 状态描述
     
     -- 错误信息
-    error_code TEXT,                            -- 错误码
-    error_message TEXT,                         -- 错误信息
+    error_code TEXT,                          -- 错误码
+    error_message TEXT,                       -- 错误信息
     
-    -- API请求/响应（调试用）
-    api_request_body TEXT,                      -- 完整API请求JSON
-    api_response TEXT,                          -- API响应JSON
+    -- API参数（JSON）
+    parameters TEXT,                          -- 提交给供应商的参数
     
-    -- 最终成品分享链接（冗余存储，便于快速获取）
-    output_share_url TEXT,                     -- 成品分享链接
+    -- 结果信息
+    result_url TEXT,                          -- 结果文件URL
+    result_format TEXT,                       -- 结果格式
+    result_size INTEGER,                      -- 结果文件大小
+    
+    -- 分享链接
+    share_url TEXT,                           -- 分享链接
+    share_expires_at INTEGER,                 -- 分享链接过期时间
     
     -- 计费信息
-    token_usage TEXT,                          -- token消耗（JSON）
+    token_usage TEXT,                         -- token消耗
     estimated_cost TEXT,                       -- 预估花费
+    actual_cost TEXT,                          -- 实际花费
     
     -- 时间戳
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    completed_at INTEGER,                      -- 完成/失败时间
+    completed_at INTEGER,                      -- 完成时间
     
-    -- 轮询相关（通用轮询配置）
-    poll_count INTEGER DEFAULT 0,               -- 轮询次数
-    last_poll_at INTEGER,                       -- 最后轮询时间
-    max_poll_count INTEGER DEFAULT 600,         -- 最大轮询次数
+    -- 轮询相关
+    poll_count INTEGER DEFAULT 0,              -- 轮询次数
+    last_poll_at INTEGER,                      -- 最后轮询时间
+    max_poll_count INTEGER DEFAULT 600,        -- 最大轮询次数
     
-    -- 并发控制
-    version INTEGER DEFAULT 0,                 -- 乐观锁版本号
+    -- 乐观锁
+    version INTEGER DEFAULT 0,
     
-    -- 元数据（扩展字段）
-    metadata TEXT                               -- JSON格式的扩展数据
+    -- 外键约束
+    FOREIGN KEY (material_id) REFERENCES materials(material_id),
+    FOREIGN KEY (vendor_id) REFERENCES ai_vendors(vendor_id)
 );
 
 -- 索引
 CREATE INDEX idx_tasks_task_id ON tasks(task_id);
-CREATE INDEX idx_tasks_api_task_id ON tasks(api_task_id);
-CREATE INDEX idx_tasks_type ON tasks(task_type);
+CREATE INDEX idx_tasks_material ON tasks(material_id);
+CREATE INDEX idx_tasks_vendor ON tasks(vendor_id);
 CREATE INDEX idx_tasks_status ON tasks(status);
-CREATE INDEX idx_tasks_submitter ON tasks(submitter_id);
-CREATE INDEX idx_tasks_provider ON tasks(provider);
 CREATE INDEX idx_tasks_created ON tasks(created_at DESC);
-CREATE INDEX idx_tasks_type_status ON tasks(task_type, status);
-CREATE INDEX idx_tasks_status_created ON tasks(status, created_at DESC);
 ```
-
-**字段说明**：
-- `task_id`：系统生成的任务唯一标识（UUID格式）
-- `task_type`：任务类型（3d_model/audio/video），用于区分不同AI任务
-- `api_task_id`：API返回的原始任务ID，用于查询状态
-- `output_format`：输出格式（glb/stl/obj/mp3/mp4/wav等）
-- `metadata`：JSON格式，存储任务特定的扩展参数
 
 ---
 
-### 3.2 resources（资源表）
+### 4.5 ai_vendors（供应商表）
 
-**用途**：存储任务提交的资源信息（素材/输入/输出），支持多种资源类型
+**用途**：管理AI服务供应商配置
 
 ```sql
-CREATE TABLE resources (
+CREATE TABLE ai_vendors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT NOT NULL,                      -- 关联的任务ID
     
-    -- 资源类型（输入/输出）
-    resource_type TEXT NOT NULL,                 -- input / output
+    -- 供应商标识
+    vendor_id TEXT NOT NULL UNIQUE,            -- 供应商唯一标识（包含模型版本）
+    vendor_name TEXT NOT NULL,                 -- 供应商名称
+    model_name TEXT NOT NULL,                  -- 模型名称
+    model_version TEXT,                       -- 模型版本
     
-    -- 资源内容类型
-    content_type TEXT NOT NULL,                  -- image / text / audio / video / model / other
+    -- 任务类型
+    task_type TEXT NOT NULL,                   -- 3d_model / audio / video
     
-    -- 来源类型
-    source_type TEXT NOT NULL,                   -- feishu_file / url / base64 / text / api_response
+    -- 端点配置
+    endpoint_submit TEXT NOT NULL,             -- 任务提交端点
+    endpoint_query TEXT,                      -- 任务查询端点
+    endpoint_cancel TEXT,                     -- 任务取消端点
     
-    -- 飞书文件信息（输入为飞书文件时）
-    file_key TEXT,                               -- 飞书file_key
-    file_name TEXT,                              -- 原始文件名
-    file_size INTEGER,                           -- 文件大小（字节）
-    file_mime_type TEXT,                         -- MIME类型
+    -- 认证配置
+    auth_type TEXT DEFAULT 'bearer',          -- bearer / api_key / custom
+    auth_config TEXT,                          -- 认证配置（JSON）
     
-    -- URL信息
-    source_url TEXT,                             -- 公开URL
+    -- 请求参数模板
+    request_template TEXT,                     -- 请求参数模板（JSON）
     
-    -- 文本内容（文生3D/文生音频时）
-    text_content TEXT,                            -- 文本提示词
+    -- 支持的输入/输出
+    supported_input_types TEXT,                -- 支持的输入类型
+    supported_output_formats TEXT,             -- 支持的输出格式
+    max_file_size INTEGER,                    -- 最大文件大小
     
-    -- 多视图/多片段标记
-    multi_content_bit TEXT,                       -- 位图标记
-    content_list TEXT,                           -- 内容列表（JSON数组）
+    -- 计费信息
+    price_per_call TEXT,                      -- 每次调用价格
+    price_unit TEXT,                          -- 价格单位
+    
+    -- 超时配置
+    timeout_minutes INTEGER DEFAULT 30,        -- 超时时间（分钟）
+    max_poll_count INTEGER DEFAULT 600,        -- 最大轮询次数
+    
+    -- 状态
+    is_active BOOLEAN DEFAULT 1,              -- 是否启用
+    is_default BOOLEAN DEFAULT 0,              -- 是否为默认供应商
+    priority INTEGER DEFAULT 0,                -- 推荐优先级
+    
+    -- 扩展字段
+    extra_params TEXT,                        -- 额外参数（JSON）
+    
+    -- 时间戳
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+-- 索引
+CREATE INDEX idx_vendors_task_type ON ai_vendors(task_type);
+CREATE INDEX idx_vendors_active ON ai_vendors(is_active);
+CREATE INDEX idx_vendors_priority ON ai_vendors(priority DESC);
+```
+
+---
+
+### 4.6 task_results（任务结果表）
+
+**用途**：存储任务的处理结果
+
+```sql
+CREATE TABLE task_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- 关联任务
+    task_id TEXT NOT NULL UNIQUE,             -- 任务ID
+    
+    -- 结果类型
+    result_type TEXT NOT NULL,                -- model / file / url / error
+    
+    -- 文件信息
+    file_name TEXT,                           -- 结果文件名
+    file_format TEXT,                         -- 文件格式
+    file_size INTEGER,                        -- 文件大小
     
     -- 存储信息
-    tos_path TEXT NOT NULL,                      -- TOS存储路径
-    local_tmp_path TEXT,                         -- 本地临时路径
+    tos_path TEXT,                            -- TOS存储路径
     
-    -- 输出成品信息（output类型使用）
-    output_format TEXT,                          -- 输出格式：glb/stl/mp3/mp4等
-    output_size INTEGER,                         -- 成品文件大小
+    -- URL信息
+    download_url TEXT,                        -- 下载URL
+    preview_url TEXT,                         -- 预览URL
+    share_url TEXT,                           -- 分享链接
+    share_expires_at INTEGER,                  -- 分享链接过期时间
+    
+    -- 供应商返回信息
+    vendor_response TEXT,                     -- 供应商完整响应（JSON）
+    
+    -- 元数据
+    metadata TEXT,                            -- 额外元数据（JSON）
     
     -- 时间戳
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -168,59 +382,40 @@ CREATE TABLE resources (
 );
 
 -- 索引
-CREATE INDEX idx_resources_task_id ON resources(task_id);
-CREATE INDEX idx_resources_type ON resources(resource_type);
-CREATE INDEX idx_resources_content_type ON resources(content_type);
-CREATE INDEX idx_resources_source_type ON resources(source_type);
+CREATE INDEX idx_results_task_id ON task_results(task_id);
 ```
-
-**字段说明**：
-- `resource_type`：资源类型
-  - `input`：输入素材
-  - `output`：输出成品
-- `content_type`：内容类型
-  - `image`：图片（单图/多图）
-  - `text`：文本描述
-  - `audio`：音频文件
-  - `video`：视频文件
-  - `model`：3D模型文件
-  - `other`：其他
-- `source_type`：图片来源
-  - `feishu_file`：飞书文件
-  - `url`：公开URL
-  - `base64`：Base64编码
-  - `text`：纯文本
-  - `api_response`：API返回
 
 ---
 
-### 3.3 operations（操作日志表）
+### 4.7 operations（操作日志表）
 
-**用途**：记录所有关键操作和通知，用于审计、问题排查
+**用途**：记录所有关键操作
 
 ```sql
 CREATE TABLE operations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT,                                -- 关联的任务ID（可选）
+    
+    -- 关联任务
+    task_id TEXT,                             -- 任务ID
     
     -- 操作类型
-    operation_type TEXT NOT NULL,                -- 操作类型
-    operation_detail TEXT,                        -- 操作详情（JSON或文本）
+    operation_type TEXT NOT NULL,             -- 操作类型
+    operation_detail TEXT,                    -- 操作详情（JSON）
     
     -- 操作结果
-    status TEXT NOT NULL,                         -- success / failed / pending
+    status TEXT NOT NULL,                     -- success / failed / pending
     
     -- 错误信息
-    error_message TEXT,                          -- 错误信息
+    error_message TEXT,                       -- 错误信息
     
     -- 性能指标
-    duration_ms INTEGER,                         -- 操作耗时（毫秒）
+    duration_ms INTEGER,                     -- 操作耗时（毫秒）
     
     -- 时间戳
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     
     -- 操作者
-    operator TEXT,                               -- system / user_xxx / poller
+    operator TEXT,                            -- system / delegator_xxx / poller
     
     -- 外键约束
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE SET NULL
@@ -230,43 +425,23 @@ CREATE TABLE operations (
 CREATE INDEX idx_operations_task_id ON operations(task_id);
 CREATE INDEX idx_operations_type ON operations(operation_type);
 CREATE INDEX idx_operations_created ON operations(created_at DESC);
-CREATE INDEX idx_operations_task_created ON operations(task_id, created_at DESC);
 ```
-
-**操作类型枚举**：
-
-| 类型 | 说明 | 归属 |
-|------|------|------|
-| task_created | 任务创建 | 通用 |
-| parameter_parsed | 参数解析完成 | 通用 |
-| api_submit | 提交到API | 通用 |
-| api_poll | API轮询状态 | 通用 |
-| tos_upload_input | 上传输入素材 | 通用 |
-| tos_upload_output | 上传输出成品 | 通用 |
-| result_download | 下载结果文件 | 通用 |
-| notification_sent | 发送通知 | 通用 |
-| notification_failed | 通知发送失败 | 通用 |
-| task_completed | 任务完成 | 通用 |
-| task_failed | 任务失败 | 通用 |
-| task_timeout | 任务超时 | 通用 |
-| cleanup_tmp | 清理临时文件 | 通用 |
-
-**说明**：通知记录也写入此表（如 notification_sent），不再单独建表。
 
 ---
 
-### 3.4 settings（系统配置表）
+### 4.8 settings（系统配置表）
 
 **用途**：存储系统级配置参数
 
 ```sql
 CREATE TABLE settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT NOT NULL UNIQUE,                    -- 配置键
-    value TEXT NOT NULL,                          -- 配置值
-    value_type TEXT DEFAULT 'string',            -- string / int / bool / json
-    description TEXT,                            -- 配置说明
-    category TEXT,                               -- 配置分类
+    
+    key TEXT NOT NULL UNIQUE,                 -- 配置键
+    value TEXT NOT NULL,                      -- 配置值
+    value_type TEXT DEFAULT 'string',         -- string / int / bool / json
+    description TEXT,                         -- 配置说明
+    category TEXT,                           -- 配置分类
     
     -- 时间戳
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -277,12 +452,98 @@ CREATE TABLE settings (
 CREATE INDEX idx_settings_category ON settings(category);
 ```
 
-**预设配置数据**：
+---
+
+## 5. ER图关系
+
+```
+┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+│  delegators  │ 1    N│  materials   │ M    N│    tasks     │ N    1│  ai_vendors  │
+│   委托人     │───────▶│    材料      │───────▶│    任务      │───────▶│    供应商     │
+└──────────────┘       └──────┬───────┘       └──────┬───────┘       └──────────────┘
+                             │                     │
+                             │ N                   │ 1
+                             ▼                     ▼
+                    ┌──────────────┐       ┌──────────────┐
+                    │material_     │       │ task_results │
+                    │resources     │       │    结果      │
+                    │   资源       │       └──────────────┘
+                    └──────────────┘
+                    
+                    operations ──────< tasks
+                    settings 独立
+```
+
+**关系说明**：
+- 委托人 → 材料：1对多
+- 材料 → 任务：1对多（一份材料分发给多个任务）
+- 任务 → 供应商：多对一
+- 材料 ↔ 供应商：多对多（通过任务连接）
+
+---
+
+## 6. 表结构汇总
+
+| 表名 | 说明 | 关系 |
+|------|------|------|
+| delegators | 委托人表 | - |
+| materials | 材料表 | N ← 1 委托人 |
+| material_resources | 资源表 | N ← 1 材料 |
+| tasks | 任务表 | N ← 1 材料, N ← 1 供应商 |
+| ai_vendors | 供应商表 | - |
+| task_results | 结果表 | 1 ← 1 任务 |
+| operations | 操作日志表 | N ← 1 任务 |
+| settings | 系统配置表 | 独立 |
+
+---
+
+## 7. tasks 表 status 字段详解
+
+### 状态值定义
+
+| 状态值 | 阶段 | 含义 |
+|--------|------|------|
+| pending | 创建 | 待提交 |
+| submitting | 提交 | 提交中 |
+| queued | 供应商 | 排队中 |
+| running | 供应商 | 处理中 |
+| succeeded | 完成 | 成功 |
+| failed | 完成 | 失败 |
+| cancelled | 完成 | 已取消 |
+| error | 错误 | 出错 |
+| timeout | 超时 | 轮询超时 |
+
+### 状态流转
+
+```
+pending → submitting → queued → running → succeeded
+                              │           │
+                              │           └──> failed
+                              │
+                              └──> cancelled / error / timeout
+```
+
+---
+
+## 8. 预设数据
+
+### 8.1 供应商预设
+
+```sql
+INSERT INTO ai_vendors (vendor_id, vendor_name, model_name, model_version, task_type, endpoint_submit, endpoint_query, supported_input_types, supported_output_formats, price_per_call, timeout_minutes, priority) VALUES
+('meshysty_v2', 'Meshy.AI', 'Meshy 3D', 'v2', '3d_model', 'https://api.meshy.ai/v2/image-to-3d', 'https://api.meshy.ai/v2/image-to-3d/{task_id}', '["image_url"]', '["glb", "fbx", "obj"]', '约$0.05', 30, 10),
+('doubao_seed3d_v2', '火山引擎', '豆包 Seed3D', 'v2.0', '3d_model', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}', '["image_url", "text"]', '["glb", "stl", "obj"]', '待定', 30, 8),
+('hyper3d_v2', '影眸科技', 'Hyper3D Gen2', 'v2', '3d_model', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}', '["image_url"]', '["glb", "obj", "usdz"]', '¥1.8/次', 30, 7),
+('hitem3d_v2', '数美科技', 'Hitem3D', 'v2.0', '3d_model', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}', '["image_url", "multi_images"]', '["glb", "stl"]', '¥5-13/次', 40, 6),
+('tripo3d_v2', 'Tripo3D', 'Tripo3D', 'v2', '3d_model', 'https://api.tripo3d.ai/v2/openapi/task', 'https://api.tripo3d.ai/v2/openapi/task/{task_id}', '["image_url", "text", "multi_view"]', '["glb", "obj", "fbx"]', '待定', 30, 5);
+```
+
+### 8.2 系统配置预设
 
 ```sql
 -- 轮询配置
 INSERT INTO settings (key, value, value_type, description, category) VALUES
-('polling_interval_seconds', '30', 'int', '轮询间隔（秒）', 'polling'),
+('polling_interval_seconds', '180', 'int', '轮询间隔（秒）', 'polling'),
 ('max_poll_count', '600', 'int', '最大轮询次数', 'polling');
 
 -- TOS配置
@@ -298,245 +559,37 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ('notification_on_success', 'true', 'bool', '成功时是否通知', 'notification'),
 ('notification_on_failure', 'true', 'bool', '失败时是否通知', 'notification');
 
--- API通用配置
+-- 分享链接配置
 INSERT INTO settings (key, value, value_type, description, category) VALUES
-('api_timeout_seconds', '60', 'int', 'API调用超时时间（秒）', 'api');
+('share_url_expire_hours', '24', 'int', '分享链接有效期（小时）', 'share');
 ```
 
 ---
 
-### 3.5 resources_tasks（资源-任务关联表）
+## 9. 变更日志
 
-**用途**：实现resources与tasks的多对多关系，一套素材可提交给多个API产生多个task
+### v3.0 (2026-04-21)
+- 重新梳理ER关系：委托人 → 材料(1:N) → 任务(M:N) → 供应商(N:1)
+- 材料表新增 semantic 字段：对话语义理解
+- 材料 → 任务：1对多（一份材料分发给多个任务）
+- 任务 → 供应商：多对一
+- 材料 ↔ 供应商：通过任务实现多对多
 
-```sql
-CREATE TABLE resources_tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    resource_id INTEGER NOT NULL,                -- 关联的资源ID
-    task_id TEXT NOT NULL,                     -- 关联的任务ID
-    
-    -- 关联顺序
-    bind_order INTEGER DEFAULT 1,               -- 绑定顺序
-    
-    -- 时间戳
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    
-    -- 外键约束
-    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE,
-    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
-    
-    -- 唯一约束：防止重复关联
-    UNIQUE(resource_id, task_id)
-);
+### v2.1 (2026-04-21)
+- 引入 materials/material_resources 表
+- 新增 task_results 表
 
--- 索引
-CREATE INDEX idx_rt_resource_id ON resources_tasks(resource_id);
-CREATE INDEX idx_rt_task_id ON resources_tasks(task_id);
-```
-
-**使用场景**：
-- 一套素材提交给多个API（如同时提交给Meshy和Tripo3D）
-- 一个task可以关联多个resource（多视图素材）
-
-**使用场景**：
-- 单API任务：只关联一个API
-- 组合API任务：先调用API1生成中间结果，再调用API2优化
-
----
-
-### 3.6 apis（API配置表）
-
-**用途**：管理支持的AI API配置（原models表改名并通用化）
-
-```sql
-CREATE TABLE apis (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    
-    -- API标识
-    api_id TEXT NOT NULL UNIQUE,                 -- API唯一标识
-    provider TEXT NOT NULL,                       -- 提供商名称
-    
-    -- 任务类型（新增）
-    task_type TEXT NOT NULL,                     -- 3d_model / audio / video
-    
-    -- API信息
-    api_name TEXT NOT NULL,                      -- API显示名称
-    api_version TEXT,                           -- API版本
-    
-    -- 端点配置
-    endpoint_submit TEXT NOT NULL,               -- 任务提交端点
-    endpoint_query TEXT,                         -- 任务查询端点
-    endpoint_cancel TEXT,                        -- 任务取消端点
-    
-    -- 认证配置
-    auth_type TEXT DEFAULT 'bearer',             -- bearer / api_key / custom
-    auth_config TEXT,                           -- 认证配置（JSON，敏感信息加密存储）
-    
-    -- 请求参数模板（JSON）
-    request_template TEXT,                       -- 请求参数模板
-    
-    -- 支持的输入/输出
-    supported_input_types TEXT,                   -- 支持的输入类型（JSON数组）
-    supported_output_formats TEXT,               -- 支持的输出格式（JSON数组）
-    max_file_size INTEGER,                       -- 最大文件大小
-    
-    -- 计费信息
-    price_per_call TEXT,                         -- 每次调用价格
-    price_unit TEXT,                            -- 价格单位
-    
-    -- 超时配置
-    timeout_minutes INTEGER DEFAULT 30,           -- 超时时间（分钟）
-    max_poll_count INTEGER DEFAULT 600,          -- 最大轮询次数
-    
-    -- 状态
-    is_active BOOLEAN DEFAULT 1,                 -- 是否启用
-    is_default BOOLEAN DEFAULT 0,                -- 是否为该任务类型的默认API
-    priority INTEGER DEFAULT 0,                 -- 推荐优先级（数值越大越优先）
-    
-    -- 扩展字段
-    extra_params TEXT,                          -- 额外参数（JSON）
-    
-    -- 时间戳
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-
--- 索引
-CREATE INDEX idx_apis_provider ON apis(provider);
-CREATE INDEX idx_apis_task_type ON apis(task_type);
-CREATE INDEX idx_apis_active ON apis(is_active);
-CREATE INDEX idx_apis_priority ON apis(priority DESC);
-```
-
-**预设API数据**：
-
-```sql
--- 3D建模API
-INSERT INTO apis (api_id, provider, task_type, api_name, api_version, endpoint_submit, endpoint_query, supported_input_types, supported_output_formats, price_per_call, timeout_minutes, priority) VALUES
-('meshysty', 'Meshy.AI', '3d_model', 'Meshy 3D', 'v2', 'https://api.meshy.ai/v2/image-to-3d', 'https://api.meshy.ai/v2/image-to-3d/{task_id}', '["image_url"]', '["glb", "fbx", "obj"]', '约$0.05', 30, 10),
-('doubao-seed3d', '火山引擎', '3d_model', '豆包 Seed3D', 'v2.0', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}', '["image_url", "text"]', '["glb", "stl", "obj"]', '待定', 30, 8),
-('hyper3d', '影眸科技', '3d_model', 'Hyper3D Gen2', 'v2', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}', '["image_url"]', '["glb", "obj", "usdz"]', '¥1.8/次', 30, 7),
-('hitem3d', '数美科技', '3d_model', 'Hitem3D', 'v2.0', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks', 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{task_id}', '["image_url", "multi_images"]', '["glb", "stl"]', '¥5-13/次', 40, 6),
-('tripo3d', 'Tripo3D', '3d_model', 'Tripo3D', 'v2', 'https://api.tripo3d.ai/v2/openapi/task', 'https://api.tripo3d.ai/v2/openapi/task/{task_id}', '["image_url", "text", "multi_view"]', '["glb", "obj", "fbx"]', '待定', 30, 5);
-
--- 音频API（预留）
-INSERT INTO apis (api_id, provider, task_type, api_name, api_version, endpoint_submit, endpoint_query, supported_input_types, supported_output_formats, timeout_minutes, priority) VALUES
-('demo-tts', '待定', 'audio', 'TTS语音合成', 'v1', 'https://api.example.com/tts', 'https://api.example.com/tts/{task_id}', '["text"]', '["mp3", "wav"]', 10, 5);
-
--- 视频API（预留）
-INSERT INTO apis (api_id, provider, task_type, api_name, api_version, endpoint_submit, endpoint_query, supported_input_types, supported_output_formats, timeout_minutes, priority) VALUES
-('demo-video', '待定', 'video', '视频生成', 'v1', 'https://api.example.com/video', 'https://api.example.com/video/{task_id}', '["image", "text"]', '["mp4"]', 60, 5);
-```
-
-**字段说明**：
-- `task_type`：明确区分API所属任务类型
-- `auth_config`：认证配置（JSON），存储API Key等敏感信息
-- `request_template`：请求参数模板，便于统一构建请求
-
----
-
-## 4. ER图关系
-
-```
-                    resources (N) ──────< (N) resources_tasks >────── (N) tasks (1)
-                           │                                            │
-                           │                                            │
-                           (N)                                         (N)
-                    operations <─────────────────────────────────────┤
-                           ^
-                           │
-                           │
-                    apis (1) <────────────────────────────────────────┘
-
-settings (独立表，全局配置)
-```
-
-**关系说明**：
-- **tasks ↔ apis**：**多对一** (N) → (1) <br>多个task使用同一个API
-- **resources ↔ tasks**：**多对多** (N) ↔ (N) <br>一套素材可提交多个API产生多个task
-- **tasks ↔ operations**：**一对多** (1) → (N) <br>一个任务多个操作日志
-- **settings**：独立表，全局配置
-
-**多对多关系实现**：通过resources_tasks中间表实现
-
----
-
-## 5. tasks表status字段详解
-
-### 状态值定义
-
-| 状态值 | 来源 | 含义 | 触发时机 |
-|--------|------|------|---------|
-| pending | 本地 | 待提交 | 任务创建，尚未提交到API |
-| queued | API返回 | 排队中 | 任务提交后API初始状态 |
-| running | API返回 | 任务运行中 | API从queued变为running |
-| succeeded | API返回 | 任务成功 | API返回succeeded，结果已下载 |
-| failed | API返回 | 任务失败 | API返回failed |
-| cancelled | API返回 | 取消任务 | 任务被取消（部分API支持） |
-| error | 本地判定 | API错误 | 查询接口返回error对象 |
-| timeout | 本地判定 | 轮询超时 | poll_count >= max_poll_count且仍为queued/running |
-
-### 状态流转图
-
-```
-本地路径：
-pending ──> queued ──> running ──> succeeded
-                     └──> failed
-              └──> cancelled
-
-错误路径：
-queued/running ──(poll_count超限)──> timeout
-查询返回error ──> error
-```
-
----
-
-## 6. 表设计对比
-
-### 6.1 当前表结构（共6张）
-
-| 表 | 说明 | 关系 |
-|---|------|------|
-| tasks | 任务主表 | 多对一 → apis |
-| resources | 资源表 | 多对多 ↔ tasks（中间表） |
-| operations | 操作日志表 | 一对多 ← tasks |
-| settings | 系统配置表 | 独立 |
-| apis | API配置表 | 多对一 ← tasks |
-| resources_tasks | 资源-任务关联表 | 中间表 |
-
-### 6.2 关系说明
-
-| 关系 | 类型 | 说明 |
-|------|------|------|
-| tasks → apis | 多对一 (N)→(1) | 多个task使用同一个API |
-| resources ↔ tasks | 多对多 (N)↔(N) | 一套素材提交多个API产生多个task |
-| tasks → operations | 一对多 (1)→(N) | 一个任务多个操作日志 |
-
-### 6.3 字段调整
-
-| 字段 | 位置 |
-|------|------|
-| provider, api_id, api_task_id | tasks |
-| api_request_body, api_response | tasks |
-| input/output路径 | resources (按type区分) |
-| output_format, output_size | resources (type=output) |
-
----
-
-## 7. 变更日志
-
-### v1.1 (2026-04-20)
-- tasks表：添加 `submitter_user_name` 字段（飞书昵称冗余存储）
-- apis表：添加 `is_default` 字段（标记任务类型的默认API）
-- ER关系修正：tasks ↔ apis 为多对一，resources ↔ tasks 为多对多
+### v2.0 (2026-04-21)
+- 新增 delegators 表
+- apis → ai_vendors
 
 ### v1.0 (2026-04-20)
 - 初始版本
 
 ---
 
-## 8. 文件路径
+## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v1.1
-- 最后更新：2026-04-20
+- 文档版本：v3.0
+- 最后更新：2026-04-21
