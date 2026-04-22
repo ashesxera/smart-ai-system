@@ -1,7 +1,7 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.5
+- 版本：v3.6
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 目标系统：通用异步AI任务系统
@@ -45,7 +45,17 @@
 
 ---
 
-## 2. 材料定义
+## 2. 支持的任务类型
+
+| 任务类型 | task_type | 示例Vendor |
+|----------|-----------|------------|
+| 3D建模 | 3d_model | Meshy.AI、火山引擎、Tripo3D |
+| 音频生成 | audio | TTS、语音合成 |
+| 视频生成 | video | 视频生成、AI剪辑 |
+
+---
+
+## 3. 材料定义
 
 ```
 Material（材料）= 
@@ -61,19 +71,22 @@ Material（材料）=
 
 ---
 
-## 3. 支持的任务类型
+## 4. 表结构汇总
 
-| 任务类型 | task_type | 示例Vendor |
-|----------|-----------|------------|
-| 3D建模 | 3d_model | Meshy.AI、火山引擎、Tripo3D |
-| 音频生成 | audio | TTS、语音合成 |
-| 视频生成 | video | 视频生成、AI剪辑 |
+| 表名 | 说明 | 关系 |
+|------|------|------|
+| delegators | 委托人表 | - |
+| materials | 材料表（已合并资源信息）| N ← 1 委托人 |
+| tasks | 任务表 | N ← 1 供应商 |
+| ai_vendors | 供应商表 | - |
+| operations | 操作日志表 | N ← 1 任务 |
+| settings | 系统配置表 | 独立 |
 
 ---
 
-## 4. 数据库表结构
+## 5. 数据库表结构
 
-### 4.1 delegators（委托人表）
+### 6.1 delegators（委托人表）
 
 **用途**：存储委托人多渠道用户信息
 
@@ -112,7 +125,7 @@ CREATE INDEX idx_delegators_delegator_id ON delegators(delegator_id);
 
 ---
 
-### 4.2 materials（材料表）
+### 6.2 materials（材料表）
 
 **用途**：存储委托人的材料（含语义理解+资源+参数），与 resources 为 1对1 关系
 
@@ -125,9 +138,6 @@ CREATE TABLE materials (
     
     -- 委托人（外键）
     delegator_id TEXT NOT NULL,                -- 委托人ID
-    
-    -- 材料状态
-    status TEXT NOT NULL DEFAULT 'pending',    -- pending / completed
     
     -- 语义和参数文件路径（相对于 task 目录）
     semantic_path TEXT,                        -- 路径：materials/semantic.md
@@ -167,7 +177,7 @@ CREATE INDEX idx_materials_created ON materials(created_at DESC);
 
 ---
 
-### 4.3 tasks（任务表）
+### 6.3 tasks（任务表）
 
 **用途**：存储任务信息，连接材料和供应商
 
@@ -249,7 +259,7 @@ CREATE INDEX idx_tasks_created ON tasks(created_at DESC);
 
 ---
 
-### 4.5 ai_vendors（供应商表）
+### 6.4 ai_vendors（供应商表）
 
 **用途**：管理AI服务供应商配置
 
@@ -312,7 +322,7 @@ CREATE INDEX idx_vendors_priority ON ai_vendors(priority DESC);
 
 ---
 
-### 4.6 operations（操作日志表）
+### 6.5 operations（操作日志表）
 
 **用途**：记录所有关键操作
 
@@ -354,7 +364,7 @@ CREATE INDEX idx_operations_created ON operations(created_at DESC);
 
 ---
 
-### 4.8 settings（系统配置表）
+### 6.6 settings（系统配置表）
 
 **用途**：存储系统级配置参数
 
@@ -376,46 +386,6 @@ CREATE TABLE settings (
 -- 索引
 CREATE INDEX idx_settings_category ON settings(category);
 ```
-
----
-
-## 5. ER图关系
-
-```
-┌──────────────┐       ┌──────────────┐       ┌──────────────┐
-│  delegators  │ 1    N│  materials   │ M    N│    tasks     │ N    1│  ai_vendors  │
-│   委托人     │───────▶│    材料      │───────▶│    任务      │───────▶│    供应商     │
-└──────────────┘       └──────┬───────┘       └──────┬───────┘       └──────────────┘
-                             │                     │
-                             │ N                   │ 1
-                             ▼                     ▼
-                    ┌──────────────┐       ┌──────────────┐
-                    │material_     │
-                    │resources     │       │ operations   │
-                    │   资源       │       │ 操作日志     │
-                    └──────────────┘       └──────────────┘
-
-                    settings 独立
-```
-
-**关系说明**：
-- 委托人 → 材料：1对多
-- 材料 → 任务：1对多（一份材料分发给多个任务）
-- 任务 → 供应商：多对一
-- 材料 ↔ 供应商：多对多（通过任务连接）
-
----
-
-## 6. 表结构汇总
-
-| 表名 | 说明 | 关系 |
-|------|------|------|
-| delegators | 委托人表 | - |
-| materials | 材料表（已合并资源信息）| N ← 1 委托人 |
-| tasks | 任务表 | N ← 1 供应商 |
-| ai_vendors | 供应商表 | - |
-| operations | 操作日志表 | N ← 1 任务 |
-| settings | 系统配置表 | 独立 |
 
 ---
 
@@ -490,6 +460,11 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## 9. 变更日志
 
+### v3.6 (2026-04-22)
+- 调整章节顺序：材料定义→表汇总→ER图→数据库表结构
+- materials 表删除 status 字段
+- ER图删除 material_resources
+
 ### v3.5 (2026-04-22)
 - 删除 material_resources 表定义，字段已合并到 materials 表
 
@@ -533,5 +508,5 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v3.5
+- 文档版本：v3.6
 - 最后更新：2026-04-22
