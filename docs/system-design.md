@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v2.9
+- 版本：v3.0
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -667,23 +667,97 @@ INSERT INTO settings (key, value, description) VALUES
 ### 5.3 任务队列模块
 
 #### 功能
-管理任务的存储、调度、优先级。
+管理任务的存储、调度、优先级，处理任务的完整生命周期。
 
 #### 设计方案
-- **队列存储**：使用 SQLite 的 tasks 表作为任务队列
-- **待处理查询**：`WHERE status IN ('pending', 'submitting', 'queued') ORDER BY created_at ASC`
-- **优先级**：按创建时间顺序，先到先处理
 
-#### 代码示例
+##### 5.3.1 队列存储
+
+- **队列存储**：使用 SQLite 的 tasks 表作为任务队列
+- **待处理查询**：按创建时间顺序，先到先处理
+
+##### 5.3.2 任务状态流转
+
+```
+pending → submitting → queued → running → succeeded
+                   ↓              ↓         ↓
+                 failed        error    timeout
+```
+
+| 状态 | 阶段 | 说明 |
+|------|------|------|
+| pending | 创建 | 待提交，已解析材料但未提交给供应商 |
+| submitting | 提交 | 正在提交给供应商 API |
+| queued | 供应商 | 已提交，等待处理 |
+| running | 供应商 | 供应商处理中 |
+| succeeded | 完成 | 成功 |
+| failed | 完成 | 失败（可重试）|
+| error | 错误 | API 返回错误（不可重试）|
+| timeout | 超时 | 轮询超时 |
+| cancelled | 取消 | 用户取消 |
+
+##### 5.3.3 任务处理流程
+
 ```python
-# 获取待处理任务
-def get_pending_tasks():
-    return db.query("""
+def process_pending_tasks():
+    """处理待处理任务"""
+    tasks = db.query("""
         SELECT * FROM tasks 
-        WHERE status IN ('pending', 'submitting', 'queued') 
+        WHERE status = 'pending' 
         ORDER BY created_at ASC
     """)
+    
+    for task in tasks:
+        # 1. 获取材料信息
+        material = get_material(task.task_id)
+        
+        # 2. 选择供应商
+        vendor = select_vendor(task.task_type)
+        
+        # 3. 更新状态为 submitting
+        update_task_status(task.task_id, 'submitting')
+        
+        # 4. 提交到供应商
+        try:
+            result = vendor.submit(material)
+            
+            # 5. 更新 tasks 表
+            update_task(task.task_id, {
+                'vendor_id': vendor.id,
+                'vendor_task_id': result.vendor_task_id,
+                'api_request': result.request_body,
+                'api_response': result.response_body,
+                'status': 'queued'
+            })
+        except VendorError as e:
+            update_task(task.task_id, {
+                'status': 'error',
+                'error_code': e.code,
+                'error_message': e.message
+            })
 ```
+
+##### 5.3.4 优先级与调度
+
+| 优先级策略 | 说明 |
+|------------|------|
+| 时间顺序 | 按 created_at 升序，先到先处理 |
+| 任务类型 | 不同任务类型独立轮询 |
+| 供应商限制 | 考虑供应商的并发限制 |
+
+##### 5.3.5 并发控制
+
+- **单进程**：当前设计为单进程轮询，避免锁竞争
+- **数据库事务**：使用事务确保原子性
+- **重试机制**：失败任务可重试（status='failed'）
+
+#### 与其他模块的关系
+
+| 模块 | 交互 |
+|------|------|
+| 5.2 对话理解 | 通过戳记触发，创建 pending 任务 |
+| 5.4 后台处理 | 轮询任务状态，更新 tasks 表 |
+| 5.5 存储管理 | 读取 materials 信息，上传/下载文件 |
 
 ---
 
@@ -1088,6 +1162,9 @@ notification_retry_times: 3
 ---
 
 ## 9. 变更日志
+
+### v3.0 (2026-04-22)
+- 细化 5.3 任务队列模块：状态流转、代码示例、优先级调度
 
 ### v2.9 (2026-04-22)
 - 同步最新数据库设计：删除 material_resources 表
