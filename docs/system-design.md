@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v3.2
+- 版本：v3.3
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -667,7 +667,7 @@ INSERT INTO settings (key, value, description) VALUES
 ### 5.3 材料解析模块
 
 #### 功能
-从 session JSONL 文件中提取任务段落，生成 semantic.md，解析资源文件并上传到 TOS，解析 API 参数，更新数据库。
+从 session JSONL 文件中提取任务段落，生成 semantic.md，解析资源文件并上传到 TOS，更新数据库。
 
 #### 处理流程
 
@@ -684,11 +684,9 @@ INSERT INTO settings (key, value, description) VALUES
         ↓
 5. 上传资源到 TOS，生成 presign URL
         ↓
-6. 解析 API 参数（使用 LLM），保存 api_params.json
+6. 更新 materials 表记录
         ↓
-7. 更新 materials 表记录
-        ↓
-8. 创建 tasks 表记录
+7. 创建 tasks 表记录
 ```
 
 ##### 5.3.1 扫描 session 文件
@@ -754,22 +752,7 @@ def get_new_tasks():
 - **目标路径**：`smart-ai-tasks/{task_id}/materials/{uuid}.{ext}`
 - **presign URL**：有效期 1 天
 
-##### 5.3.6 解析 API 参数
-
-- **输入**：semantic.md 内容
-- **方式**：使用 LLM 解析
-- **输出**：api_params.json
-
-```json
-{
-  "task_type": "3d_model",
-  "model": "meshy-v2",
-  "prompt": "将图片转换为3D模型",
-  "format": "glb"
-}
-```
-
-##### 5.3.7 更新数据库
+##### 5.3.6 更新数据库
 
 1. **更新 materials 表**：
    - task_id
@@ -786,12 +769,12 @@ def get_new_tasks():
    - vendor_id（选择供应商）
    - status = 'pending'
 
-##### 5.3.8 与其他模块的关系
+##### 5.3.7 与其他模块的关系
 
 | 模块 | 交互 |
 |------|------|
 | 5.2 对话理解 | 触发：Skill 发送戳记，后台检测到后处理 |
-| 5.4 后台处理 | 读取 materials 表，提交供应商 API |
+| 5.4 供应商适配器 | 读取 materials 表，由供应商适配器解析参数并提交 API |
 
 ---
 
@@ -1196,6 +1179,9 @@ notification_retry_times: 3
 ---
 
 ## 9. 变更日志
+
+### v3.3 (2026-04-22)
+- 5.3 材料解析：删除解析API参数步骤（5.4供应商适配器单独讨论）
 
 ### v3.2 (2026-04-22)
 - 细化 5.3 材料解析模块：session扫描、任务段落提取、去重处理、附件解析
