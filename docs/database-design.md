@@ -1,7 +1,7 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.3
+- 版本：v3.4
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 目标系统：通用异步AI任务系统
@@ -120,8 +120,8 @@ CREATE INDEX idx_delegators_delegator_id ON delegators(delegator_id);
 CREATE TABLE materials (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     
-    -- 材料标识
-    material_id TEXT NOT NULL UNIQUE,           -- 系统内部的材料ID
+    -- 材料标识（与 task_id 1对1）
+    task_id TEXT NOT NULL UNIQUE,             -- 系统内部的任务ID（与 tasks 表 1对1）
     
     -- 委托人（外键）
     delegator_id TEXT NOT NULL,                -- 委托人ID
@@ -130,8 +130,8 @@ CREATE TABLE materials (
     status TEXT NOT NULL DEFAULT 'pending',    -- pending / completed
     
     -- 语义和参数文件路径（相对于 task 目录）
-    semantic_path TEXT,                        -- 路径：{material_id}/semantic.md
-    api_params_path TEXT,                      -- 路径：{material_id}/api_params.json
+    semantic_path TEXT,                        -- 路径：materials/semantic.md
+    api_params_path TEXT,                      -- 路径：materials/api_params.json
     
     -- 资源信息（合并到 materials，1对1）
     resource_type TEXT,                        -- image / text / video / audio / url
@@ -146,7 +146,7 @@ CREATE TABLE materials (
     resource_uuid TEXT,                        -- UUID，用于 TOS 文件名
     
     -- 存储路径
-    tos_path TEXT,                            -- TOS完整路径：smart-ai-tasks/{task_id}/{material_id}/{uuid}.ext
+    tos_path TEXT,                            -- TOS完整路径：smart-ai-tasks/{task_id}/materials/{uuid}.ext
     
     -- 时间戳
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -157,7 +157,7 @@ CREATE TABLE materials (
 );
 
 -- 索引
-CREATE INDEX idx_materials_material_id ON materials(material_id);
+CREATE INDEX idx_materials_task_id ON materials(task_id);
 CREATE INDEX idx_materials_delegator ON materials(delegator_id);
 CREATE INDEX idx_materials_status ON materials(status);
 CREATE INDEX idx_materials_created ON materials(created_at DESC);
@@ -230,9 +230,6 @@ CREATE TABLE tasks (
     
     -- 任务标识
     task_id TEXT NOT NULL UNIQUE,             -- 系统内部的任务ID
-    
-    -- 材料（外键）
-    material_id TEXT NOT NULL,                -- 材料ID
     
     -- 供应商（外键）
     vendor_id TEXT NOT NULL,                  -- 供应商ID
@@ -547,6 +544,10 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## 9. 变更日志
 
+### v3.4 (2026-04-22)
+- materials 表：material_id 改为 task_id（1对1）
+- tasks 表：移除 material_id 外键（1对1 关系）
+
 ### v3.3 (2026-04-22)
 - materials 表：增加 semantic_path、api_params_path、resource_uuid、tos_path 等字段
 - material_resources 表：已与 materials 表合并（1对1关系），不再单独使用
@@ -583,5 +584,5 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v3.3
+- 文档版本：v3.4
 - 最后更新：2026-04-22
