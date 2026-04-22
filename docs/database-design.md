@@ -1,7 +1,7 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.6
+- 版本：v3.7
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 目标系统：通用异步AI任务系统
@@ -139,12 +139,8 @@ CREATE TABLE materials (
     -- 委托人（外键）
     delegator_id TEXT NOT NULL,                -- 委托人ID
     
-    -- 语义和参数文件路径（相对于 task 目录）
-    semantic_path TEXT,                        -- 路径：materials/semantic.md
-    api_params_path TEXT,                      -- 路径：materials/api_params.json
-    
-    -- 资源信息（合并到 materials，1对1）
-    resource_type TEXT,                        -- image / text / video / audio / url
+    -- 材料类型
+    material_type TEXT,                       -- semantic（语义）/ api_params（API参数）/ image / text / video / audio / url
     source_type TEXT,                          -- channel_file / url / base64 / text
     
     -- 文件信息
@@ -169,7 +165,6 @@ CREATE TABLE materials (
 -- 索引
 CREATE INDEX idx_materials_task_id ON materials(task_id);
 CREATE INDEX idx_materials_delegator ON materials(delegator_id);
-CREATE INDEX idx_materials_status ON materials(status);
 CREATE INDEX idx_materials_created ON materials(created_at DESC);
 ```
 
@@ -460,6 +455,10 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## 9. 变更日志
 
+### v3.7 (2026-04-22)
+- materials 表：删除 semantic_path、api_params_path
+- materials 表：resource_type 改为 material_type，增加枚举：semantic / api_params
+
 ### v3.6 (2026-04-22)
 - 调整章节顺序：材料定义→表汇总→ER图→数据库表结构
 - materials 表删除 status 字段
@@ -508,5 +507,5 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v3.6
+- 文档版本：v3.7
 - 最后更新：2026-04-22
