@@ -1,7 +1,7 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.4
+- 版本：v3.5
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 目标系统：通用异步AI任务系统
@@ -163,64 +163,11 @@ CREATE INDEX idx_materials_status ON materials(status);
 CREATE INDEX idx_materials_created ON materials(created_at DESC);
 ```
 
-**说明**：material_resources 表已与 materials 合并（1对1关系），不再单独使用。
+**说明**：material_resources 表已删除，字段合并到 materials 表（1对1关系）。
 
 ---
 
-### 4.3 material_resources（材料资源表）
-
-**用途**：存储材料中的具体资源
-
-```sql
-CREATE TABLE material_resources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    
-    -- 关联材料
-    material_id TEXT NOT NULL,                 -- 材料ID
-    
-    -- 资源类型
-    resource_type TEXT NOT NULL,               -- image / text / video / audio / url
-    
-    -- 来源类型
-    source_type TEXT NOT NULL,                -- channel_file / url / base64 / text
-    
-    -- 渠道信息
-    channel_type TEXT,                        -- 渠道类型：feishu / wecom / telegram
-    file_key TEXT,                           -- 渠道file_key
-    
-    -- 文件信息
-    file_name TEXT,                          -- 文件名
-    file_size INTEGER,                       -- 文件大小（字节）
-    file_mime_type TEXT,                     -- MIME类型
-    
-    -- URL信息
-    source_url TEXT,                         -- 原始URL
-    
-    -- 文本内容
-    text_content TEXT,                       -- 文本内容
-    
-    -- 存储信息
-    tos_path TEXT,                           -- TOS存储路径
-    local_tmp_path TEXT,                     -- 本地临时路径
-    
-    -- 资源顺序
-    resource_order INTEGER DEFAULT 1,         -- 资源顺序
-    
-    -- 时间戳
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    
-    -- 外键约束
-    FOREIGN KEY (material_id) REFERENCES materials(material_id) ON DELETE CASCADE
-);
-
--- 索引
-CREATE INDEX idx_mr_material_id ON material_resources(material_id);
-CREATE INDEX idx_mr_type ON material_resources(resource_type);
-```
-
----
-
-### 4.4 tasks（任务表）
+### 4.3 tasks（任务表）
 
 **用途**：存储任务信息，连接材料和供应商
 
@@ -464,9 +411,8 @@ CREATE INDEX idx_settings_category ON settings(category);
 | 表名 | 说明 | 关系 |
 |------|------|------|
 | delegators | 委托人表 | - |
-| materials | 材料表 | N ← 1 委托人 |
-| material_resources | 资源表 | N ← 1 材料 |
-| tasks | 任务表 | N ← 1 材料, N ← 1 供应商 |
+| materials | 材料表（已合并资源信息）| N ← 1 委托人 |
+| tasks | 任务表 | N ← 1 供应商 |
 | ai_vendors | 供应商表 | - |
 | operations | 操作日志表 | N ← 1 任务 |
 | settings | 系统配置表 | 独立 |
@@ -544,13 +490,16 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## 9. 变更日志
 
+### v3.5 (2026-04-22)
+- 删除 material_resources 表定义，字段已合并到 materials 表
+
 ### v3.4 (2026-04-22)
 - materials 表：material_id 改为 task_id（1对1）
 - tasks 表：移除 material_id 外键（1对1 关系）
 
 ### v3.3 (2026-04-22)
 - materials 表：增加 semantic_path、api_params_path、resource_uuid、tos_path 等字段
-- material_resources 表：已与 materials 表合并（1对1关系），不再单独使用
+- material_resources 表：已删除，字段合并到 materials 表
 - tasks 表：增加 api_request（完整请求）、api_response（完整返回）、tos_path（TOS路径）
 
 ### v3.2 (2026-04-21)
@@ -570,7 +519,7 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - 材料 ↔ 供应商：通过任务实现多对多
 
 ### v2.1 (2026-04-21)
-- 引入 materials/material_resources 表
+- 引入 materials 表
 
 ### v2.0 (2026-04-21)
 - 新增 delegators 表
@@ -584,5 +533,5 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v3.4
+- 文档版本：v3.5
 - 最后更新：2026-04-22
