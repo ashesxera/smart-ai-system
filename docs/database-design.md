@@ -1,7 +1,7 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.1
+- 版本：v3.2
 - 创建时间：2026-04-20
 - 更新时间：2026-04-21
 - 目标系统：通用异步AI任务系统
@@ -126,6 +126,9 @@ CREATE TABLE materials (
     -- 委托人（外键）
     delegator_id TEXT NOT NULL,                -- 委托人ID
     
+    -- 材料状态
+    status TEXT NOT NULL DEFAULT 'pending',    -- pending / completed
+    
     -- 对话语义（JSON）
     semantic TEXT,                              -- {"原始输入": "", "意图": "", "提取参数": {}}
     
@@ -146,6 +149,7 @@ CREATE TABLE materials (
 -- 索引
 CREATE INDEX idx_materials_material_id ON materials(material_id);
 CREATE INDEX idx_materials_delegator ON materials(delegator_id);
+CREATE INDEX idx_materials_status ON materials(status);
 CREATE INDEX idx_materials_created ON materials(created_at DESC);
 ```
 
@@ -516,6 +520,11 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ---
 
 ## 9. 变更日志
+
+### v3.2 (2026-04-21)
+- materials 表增加 status 字段：pending / completed
+- Skill 确认后一次性写入 materials（status=pending）
+- 后台进程轮询 pending materials 创建 tasks，标记 completed
 
 ### v3.1 (2026-04-21)
 - 删除 task_results 表
