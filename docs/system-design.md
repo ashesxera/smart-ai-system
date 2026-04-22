@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v2.7
+- 版本：v2.8
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -755,7 +755,7 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 tos://{bucket}/
 └─ smart-ai-tasks/
     └─ {task_id}/                         ← 任务级别
-        ├─ {material_id}/                ← materials + resources 合并
+        ├─ materials/                    ← materials + resources 合并
         │   ├─ semantic.md               ← 原始会话内容
         │   ├─ api_params.json          ← API参数
         │   └─ {uuid}.ext               ← 输入文件
@@ -768,7 +768,7 @@ tos://{bucket}/
 
 **设计说明**：
 - materials 是 resources 的父集，1对1关系
-- {material_id}/ 目录下包含语义文件、API参数和输入文件
+- materials/ 目录下包含语义文件、API参数和输入文件
 - semantic.md 保存原始会话内容，api_params.json 保存 API 参数
 - results/ 保存供应商返回的输出文件
 
@@ -1098,8 +1098,11 @@ notification_retry_times: 3
 
 ## 9. 变更日志
 
+### v2.8 (2026-04-22)
+- 5.5 存储管理：目录结构 {material_id}/ 改为 materials/
+
 ### v2.7 (2026-04-22)
-- 5.5 存储管理：修正目录结构，materials 和 resources 合并为 {material_id}/
+- 5.5 存储管理：修正目录结构，materials 和 resources 合并为 materials/
 
 ### v2.6 (2026-04-22)
 - 5.5 存储管理：更新目录结构为 {task_id}/{material_id}/
@@ -1152,12 +1155,12 @@ notification_retry_times: 3
 
 ## 10. 文件路径
 
-- 文档版本：v2.6
+- 文档版本：v2.8
 - 最后更新：2026-04-22
 
 ---
 
 ## 参考文档
 
-- `database-design.md` - 数据库设计方案（v3.1）
+- `database-design.md` - 数据库设计方案（v3.3）
 - `architecture-discussion-v2-2.md` - 架构讨论记录
