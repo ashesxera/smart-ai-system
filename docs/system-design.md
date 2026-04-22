@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v3.1
+- 版本：v3.2
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -667,65 +667,131 @@ INSERT INTO settings (key, value, description) VALUES
 ### 5.3 材料解析模块
 
 #### 功能
-从原始对话片段 semantic.md 中解析出资源文件位置，上传到 TOS 生成公网链接，解析 API 参数，更新数据库记录。
+从 session JSONL 文件中提取任务段落，生成 semantic.md，解析资源文件并上传到 TOS，解析 API 参数，更新数据库。
 
 #### 处理流程
 
 ```
-检测到【📍会话结束】戳记
+后台进程轮询（20秒）
         ↓
-1. 读取 semantic.md（原始对话内容）
+1. 全量扫描所有 session JSONL 文件
         ↓
-2. 解析资源文件位置（图片/文件路径）
+2. 找到【📍任务开始 task-xxx】到【📍任务结束 task-xxx】之间的文本
         ↓
-3. 上传资源到 TOS，生成 presign URL
+3. 生成 semantic.md（原始对话文本）
         ↓
-4. 从语义中解析 API 参数
+4. 解析附件路径（提取 [media attached: xxx]）
         ↓
-5. 保存 api_params.json
+5. 上传资源到 TOS，生成 presign URL
         ↓
-6. 更新 materials 表记录
+6. 解析 API 参数（使用 LLM），保存 api_params.json
+        ↓
+7. 更新 materials 表记录
+        ↓
+8. 创建 tasks 表记录
 ```
 
-##### 5.3.1 资源文件解析
+##### 5.3.1 扫描 session 文件
 
-从 session 文件中提取用户上传的图片/文件：
+- **扫描范围**：所有 `*.jsonl` 文件（排除 `.lock` 和 `.reset` 后缀）
+- **扫描方式**：每次轮询全量扫描
+- **负载评估**：100 任务/天约 50ms 扫描时间，可接受
 
-| 来源类型 | 说明 |
-|----------|------|
-| channel_file | 渠道文件（如飞书文件），需下载 |
-| url | 用户提供的 URL |
-| base64 | Base64 编码的文件 |
+```python
+def scan_session_files():
+    session_dir = "/root/.openclaw/agents/main/sessions/"
+    for f in glob.glob(f"{session_dir}*.jsonl"):
+        if ".lock" in f or ".reset" in f:
+            continue
+        process_session_file(f)
+```
 
-##### 5.3.2 上传到 TOS
+##### 5.3.2 提取任务段落
 
-将资源文件上传到 TOS，生成公网可访问的链接：
+- **查找戳记**：搜索 "【📍任务开始" 和 "【📍任务结束"
+- **提取 task_id**：从戳记中解析 UUID
+- **提取对话**：两个戳记之间的所有文本
 
-- 存储路径：`smart-ai-tasks/{task_id}/materials/{uuid}.{ext}`
-- 有效期：presign URL 默认 1 天
+```
+semantic.md 内容示例：
+【📍任务开始 task-xxx】
+用户：帮我做个3D模型
+助手：好的，请上传一张图片
+用户：[上传了图片]
+助手：图片收到了，正在生成3D模型...
+【📍任务结束 task-xxx】
+```
 
-##### 5.3.3 解析 API 参数
+##### 5.3.3 去重处理
 
-使用 LLM 从 semantic.md 内容中解析供应商 API 所需参数，保存为 api_params.json。
+- **去重方式**：比对数据库 tasks 表，找出不存在的 task_id
+- **流程**：
+  1. 扫描所有 session，找出所有 task_id
+  2. 查询数据库，找出已存在的 task_id
+  3. 取差集，找出需要处理的新任务
 
-##### 5.3.4 更新数据库
+```python
+def get_new_tasks():
+    all_task_ids = scan_all_session_files()
+    existing = db.query("SELECT task_id FROM tasks")
+    existing_set = set([r['task_id'] for r in existing])
+    return all_task_ids - existing_set
+```
 
-更新 materials 表记录：
-- task_id
-- material_type（image/file/url）
-- source_type（channel_file/url/base64）
-- file_name
-- file_size
-- file_mime_type
-- resource_uuid
-- tos_path
+##### 5.3.4 解析附件路径
 
-##### 5.3.5 与其他模块的关系
+从对话文本中提取附件路径：
+
+```
+格式：[media attached: /root/.openclaw/media/inbound/xxx.jpg (image/jpeg) | /path]
+```
+
+- 提取本地路径：正则匹配 `/root/.openclaw/media/inbound/`
+- 文件类型：从 MIME 类型获取（如 image/jpeg）
+
+##### 5.3.5 上传 TOS
+
+- **目标路径**：`smart-ai-tasks/{task_id}/materials/{uuid}.{ext}`
+- **presign URL**：有效期 1 天
+
+##### 5.3.6 解析 API 参数
+
+- **输入**：semantic.md 内容
+- **方式**：使用 LLM 解析
+- **输出**：api_params.json
+
+```json
+{
+  "task_type": "3d_model",
+  "model": "meshy-v2",
+  "prompt": "将图片转换为3D模型",
+  "format": "glb"
+}
+```
+
+##### 5.3.7 更新数据库
+
+1. **更新 materials 表**：
+   - task_id
+   - material_type（image/file/url）
+   - source_type（channel_file/url/base64）
+   - file_name
+   - file_size
+   - file_mime_type
+   - resource_uuid
+   - tos_path
+
+2. **创建 tasks 表**：
+   - task_id
+   - vendor_id（选择供应商）
+   - status = 'pending'
+
+##### 5.3.8 与其他模块的关系
 
 | 模块 | 交互 |
 |------|------|
-| 5.2 对话理解 | 触发：检测到结束戳记后执行 |
-| 5.4 后台处理 | 完成后，5.4 读取 materials 表创建 tasks |
+| 5.2 对话理解 | 触发：Skill 发送戳记，后台检测到后处理 |
+| 5.4 后台处理 | 读取 materials 表，提交供应商 API |
 
 ---
 
@@ -1130,6 +1196,9 @@ notification_retry_times: 3
 ---
 
 ## 9. 变更日志
+
+### v3.2 (2026-04-22)
+- 细化 5.3 材料解析模块：session扫描、任务段落提取、去重处理、附件解析
 
 ### v3.1 (2026-04-22)
 - 5.3 改为材料解析模块：资源文件解析、上传TOS、解析API参数、更新数据库
