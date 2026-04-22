@@ -1,9 +1,9 @@
 # Smart AI 任务系统数据库设计方案
 
 ## 文档信息
-- 版本：v3.2
+- 版本：v3.3
 - 创建时间：2026-04-20
-- 更新时间：2026-04-21
+- 更新时间：2026-04-22
 - 目标系统：通用异步AI任务系统
 - 数据库类型：SQLite 3
 
@@ -114,7 +114,7 @@ CREATE INDEX idx_delegators_delegator_id ON delegators(delegator_id);
 
 ### 4.2 materials（材料表）
 
-**用途**：存储委托人的材料（含语义理解+资源+参数）
+**用途**：存储委托人的材料（含语义理解+资源+参数），与 resources 为 1对1 关系
 
 ```sql
 CREATE TABLE materials (
@@ -129,14 +129,24 @@ CREATE TABLE materials (
     -- 材料状态
     status TEXT NOT NULL DEFAULT 'pending',    -- pending / completed
     
-    -- 对话语义（JSON）
-    semantic TEXT,                              -- {"原始输入": "", "意图": "", "提取参数": {}}
+    -- 语义和参数文件路径（相对于 task 目录）
+    semantic_path TEXT,                        -- 路径：{material_id}/semantic.md
+    api_params_path TEXT,                      -- 路径：{material_id}/api_params.json
     
-    -- 材料摘要（JSON）
-    summary TEXT,                              -- {"资源数": 1, "类型": "image_text"}
+    -- 资源信息（合并到 materials，1对1）
+    resource_type TEXT,                        -- image / text / video / audio / url
+    source_type TEXT,                          -- channel_file / url / base64 / text
+    
+    -- 文件信息
+    file_name TEXT,                           -- 文件名
+    file_size INTEGER,                        -- 文件大小（字节）
+    file_mime_type TEXT,                      -- MIME类型
+    
+    -- UUID（对应 TOS 文件名）
+    resource_uuid TEXT,                        -- UUID，用于 TOS 文件名
     
     -- 存储路径
-    tos_path TEXT,                             -- TOS存储路径
+    tos_path TEXT,                            -- TOS完整路径：smart-ai-tasks/{task_id}/{material_id}/{uuid}.ext
     
     -- 时间戳
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -152,6 +162,8 @@ CREATE INDEX idx_materials_delegator ON materials(delegator_id);
 CREATE INDEX idx_materials_status ON materials(status);
 CREATE INDEX idx_materials_created ON materials(created_at DESC);
 ```
+
+**说明**：material_resources 表已与 materials 合并（1对1关系），不再单独使用。
 
 ---
 
@@ -236,11 +248,20 @@ CREATE TABLE tasks (
     error_code TEXT,                          -- 错误码
     error_message TEXT,                       -- 错误信息
     
-    -- API参数（JSON）
+    -- API请求（完整）
+    api_request TEXT,                         -- 提交给供应商的完整请求JSON
+    
+    -- API返回（完整）
+    api_response TEXT,                        -- 供应商返回的完整响应JSON
+    
+    -- API参数（JSON，冗余存储便于快速查看）
     parameters TEXT,                          -- 提交给供应商的参数
     
     -- 结果信息（JSON）
-    result_files TEXT,                       -- 结果文件列表：[{"file_name": "a.glb", "file_format": "glb", "file_size": 123456, "tos_path": "...", "download_url": "..."}]
+    result_files TEXT,                       -- 结果文件列表
+    
+    -- TOS路径
+    tos_path TEXT,                           -- 任务目录：smart-ai-tasks/{task_id}/
     
     -- 分享链接
     share_url TEXT,                           -- 分享链接
@@ -276,6 +297,11 @@ CREATE INDEX idx_tasks_vendor ON tasks(vendor_id);
 CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_created ON tasks(created_at DESC);
 ```
+
+**字段说明**：
+- `api_request`：提交给供应商的完整请求，包含 headers、body 等
+- `api_response`：供应商返回的完整响应，便于问题排查
+- `tos_path`：任务在 TOS 上的根目录路径
 
 ---
 
@@ -521,6 +547,11 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## 9. 变更日志
 
+### v3.3 (2026-04-22)
+- materials 表：增加 semantic_path、api_params_path、resource_uuid、tos_path 等字段
+- material_resources 表：已与 materials 表合并（1对1关系），不再单独使用
+- tasks 表：增加 api_request（完整请求）、api_response（完整返回）、tos_path（TOS路径）
+
 ### v3.2 (2026-04-21)
 - materials 表增加 status 字段：pending / completed
 - Skill 确认后一次性写入 materials（status=pending）
@@ -552,5 +583,5 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ## 10. 文件路径
 
 - 数据库文件：`/root/.openclaw/workspace/smart-ai-system/smart-ai.db`
-- 文档版本：v3.1
-- 最后更新：2026-04-21
+- 文档版本：v3.3
+- 最后更新：2026-04-22
