@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v3.0
+- 版本：v3.1
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -664,100 +664,68 @@ INSERT INTO settings (key, value, description) VALUES
 
 ---
 
-### 5.3 任务队列模块
+### 5.3 材料解析模块
 
 #### 功能
-管理任务的存储、调度、优先级，处理任务的完整生命周期。
+从原始对话片段 semantic.md 中解析出资源文件位置，上传到 TOS 生成公网链接，解析 API 参数，更新数据库记录。
 
-#### 设计方案
-
-##### 5.3.1 队列存储
-
-- **队列存储**：使用 SQLite 的 tasks 表作为任务队列
-- **待处理查询**：按创建时间顺序，先到先处理
-
-##### 5.3.2 任务状态流转
+#### 处理流程
 
 ```
-pending → submitting → queued → running → succeeded
-                   ↓              ↓         ↓
-                 failed        error    timeout
+检测到【📍会话结束】戳记
+        ↓
+1. 读取 semantic.md（原始对话内容）
+        ↓
+2. 解析资源文件位置（图片/文件路径）
+        ↓
+3. 上传资源到 TOS，生成 presign URL
+        ↓
+4. 从语义中解析 API 参数
+        ↓
+5. 保存 api_params.json
+        ↓
+6. 更新 materials 表记录
 ```
 
-| 状态 | 阶段 | 说明 |
-|------|------|------|
-| pending | 创建 | 待提交，已解析材料但未提交给供应商 |
-| submitting | 提交 | 正在提交给供应商 API |
-| queued | 供应商 | 已提交，等待处理 |
-| running | 供应商 | 供应商处理中 |
-| succeeded | 完成 | 成功 |
-| failed | 完成 | 失败（可重试）|
-| error | 错误 | API 返回错误（不可重试）|
-| timeout | 超时 | 轮询超时 |
-| cancelled | 取消 | 用户取消 |
+##### 5.3.1 资源文件解析
 
-##### 5.3.3 任务处理流程
+从 session 文件中提取用户上传的图片/文件：
 
-```python
-def process_pending_tasks():
-    """处理待处理任务"""
-    tasks = db.query("""
-        SELECT * FROM tasks 
-        WHERE status = 'pending' 
-        ORDER BY created_at ASC
-    """)
-    
-    for task in tasks:
-        # 1. 获取材料信息
-        material = get_material(task.task_id)
-        
-        # 2. 选择供应商
-        vendor = select_vendor(task.task_type)
-        
-        # 3. 更新状态为 submitting
-        update_task_status(task.task_id, 'submitting')
-        
-        # 4. 提交到供应商
-        try:
-            result = vendor.submit(material)
-            
-            # 5. 更新 tasks 表
-            update_task(task.task_id, {
-                'vendor_id': vendor.id,
-                'vendor_task_id': result.vendor_task_id,
-                'api_request': result.request_body,
-                'api_response': result.response_body,
-                'status': 'queued'
-            })
-        except VendorError as e:
-            update_task(task.task_id, {
-                'status': 'error',
-                'error_code': e.code,
-                'error_message': e.message
-            })
-```
+| 来源类型 | 说明 |
+|----------|------|
+| channel_file | 渠道文件（如飞书文件），需下载 |
+| url | 用户提供的 URL |
+| base64 | Base64 编码的文件 |
 
-##### 5.3.4 优先级与调度
+##### 5.3.2 上传到 TOS
 
-| 优先级策略 | 说明 |
-|------------|------|
-| 时间顺序 | 按 created_at 升序，先到先处理 |
-| 任务类型 | 不同任务类型独立轮询 |
-| 供应商限制 | 考虑供应商的并发限制 |
+将资源文件上传到 TOS，生成公网可访问的链接：
 
-##### 5.3.5 并发控制
+- 存储路径：`smart-ai-tasks/{task_id}/materials/{uuid}.{ext}`
+- 有效期：presign URL 默认 1 天
 
-- **单进程**：当前设计为单进程轮询，避免锁竞争
-- **数据库事务**：使用事务确保原子性
-- **重试机制**：失败任务可重试（status='failed'）
+##### 5.3.3 解析 API 参数
 
-#### 与其他模块的关系
+使用 LLM 从 semantic.md 内容中解析供应商 API 所需参数，保存为 api_params.json。
+
+##### 5.3.4 更新数据库
+
+更新 materials 表记录：
+- task_id
+- material_type（image/file/url）
+- source_type（channel_file/url/base64）
+- file_name
+- file_size
+- file_mime_type
+- resource_uuid
+- tos_path
+
+##### 5.3.5 与其他模块的关系
 
 | 模块 | 交互 |
 |------|------|
-| 5.2 对话理解 | 通过戳记触发，创建 pending 任务 |
-| 5.4 后台处理 | 轮询任务状态，更新 tasks 表 |
-| 5.5 存储管理 | 读取 materials 信息，上传/下载文件 |
+| 5.2 对话理解 | 触发：检测到结束戳记后执行 |
+| 5.4 后台处理 | 完成后，5.4 读取 materials 表创建 tasks |
 
 ---
 
@@ -1162,6 +1130,9 @@ notification_retry_times: 3
 ---
 
 ## 9. 变更日志
+
+### v3.1 (2026-04-22)
+- 5.3 改为材料解析模块：资源文件解析、上传TOS、解析API参数、更新数据库
 
 ### v3.0 (2026-04-22)
 - 细化 5.3 任务队列模块：状态流转、代码示例、优先级调度
