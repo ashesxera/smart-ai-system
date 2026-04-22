@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v2.6
+- 版本：v2.7
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -755,12 +755,9 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 tos://{bucket}/
 └─ smart-ai-tasks/
     └─ {task_id}/                         ← 任务级别
-        ├─ materials/                     ← 材料目录
-        │   └─ {material_id}/            ← 材料ID
-        │       ├─ semantic.md            ← 原始会话内容
-        │       └─ api_params.json       ← API参数
-        │
-        ├─ resources/                    ← 资源文件（可被多个material复用）
+        ├─ {material_id}/                ← materials + resources 合并
+        │   ├─ semantic.md               ← 原始会话内容
+        │   ├─ api_params.json          ← API参数
         │   └─ {uuid}.ext               ← 输入文件
         │
         ├─ results/                     ← 输出文件
@@ -770,9 +767,10 @@ tos://{bucket}/
 ```
 
 **设计说明**：
-- 一个 task_id 可对应多个 material_id（支持同一图片生成多个结果）
-- resources 目录下的文件可被多个 material 引用（同一图片 + 不同提示词）
+- materials 是 resources 的父集，1对1关系
+- {material_id}/ 目录下包含语义文件、API参数和输入文件
 - semantic.md 保存原始会话内容，api_params.json 保存 API 参数
+- results/ 保存供应商返回的输出文件
 
 #### 文件命名规则
 
@@ -806,16 +804,13 @@ tos://{bucket}/
   "materials": [
     {
       "material_id": "mat-001",
-      "semantic_path": "materials/mat-001/semantic.md",
-      "api_params_path": "materials/mat-001/api_params.json"
-    }
-  ],
-  
-  "resources": [
-    {
-      "uuid": "uuid-001",
-      "filename": "cat.jpg",
-      "path": "resources/cat.jpg"
+      "semantic_path": "mat-001/semantic.md",
+      "api_params_path": "mat-001/api_params.json",
+      "input_file": {
+        "uuid": "uuid-001",
+        "filename": "cat.jpg",
+        "path": "mat-001/cat.jpg"
+      }
     }
   ],
   
@@ -1102,6 +1097,9 @@ notification_retry_times: 3
 ---
 
 ## 9. 变更日志
+
+### v2.7 (2026-04-22)
+- 5.5 存储管理：修正目录结构，materials 和 resources 合并为 {material_id}/
 
 ### v2.6 (2026-04-22)
 - 5.5 存储管理：更新目录结构为 {task_id}/{material_id}/
