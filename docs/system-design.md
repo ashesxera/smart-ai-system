@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v2.5
+- 版本：v2.6
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -754,21 +754,84 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ```
 tos://{bucket}/
 └─ smart-ai-tasks/
-    └── {material_id}/
-        ├── resources/
-        │   └─ {uuid}.ext                 ← 输入文件
-        └── results/
-            └─ {default_filename}         ← 输出文件（供应商返回的默认文件名）
+    └─ {task_id}/                         ← 任务级别
+        ├─ materials/                     ← 材料目录
+        │   └─ {material_id}/            ← 材料ID
+        │       ├─ semantic.md            ← 原始会话内容
+        │       └─ api_params.json       ← API参数
+        │
+        ├─ resources/                    ← 资源文件（可被多个material复用）
+        │   └─ {uuid}.ext               ← 输入文件
+        │
+        ├─ results/                     ← 输出文件
+        │   └─ {default_filename}        ← 供应商返回的默认文件名
+        │
+        └─ summary.json                  ← 任务汇总信息
 ```
+
+**设计说明**：
+- 一个 task_id 可对应多个 material_id（支持同一图片生成多个结果）
+- resources 目录下的文件可被多个 material 引用（同一图片 + 不同提示词）
+- semantic.md 保存原始会话内容，api_params.json 保存 API 参数
 
 #### 文件命名规则
 
 | 文件 | 命名来源 | 说明 |
 |------|----------|------|
 | 输入文件 | uuid | 本地生成，用于提交供应商 |
-| 输出文件 | vendor返回的默认文件名 | 一个任务可能输出多个文件，使用供应商返回的默认文件名 |
+| 输出文件 | vendor返回的默认文件名 | 一个任务可能输出多个文件 |
+| summary.json | 自动生成 | 任务完成时写入 |
 
-**说明**：由于一个任务下输出文件可能有多条，可能产生文件名重复。我们采用供应商返回的默认文件名保存。
+#### summary.json 结构
+
+```json
+{
+  "task_id": "task-abc123",
+  "task_type": "3d_model",
+  "status": "succeeded",
+  "created_at": "2026-04-22T10:00:00Z",
+  "finished_at": "2026-04-22T10:05:00Z",
+  
+  "user": {
+    "user_id": "ou_xxx",
+    "user_name": "张三",
+    "channel_type": "feishu"
+  },
+  
+  "vendor": {
+    "name": "meshy",
+    "model": "meshy-v2"
+  },
+  
+  "materials": [
+    {
+      "material_id": "mat-001",
+      "semantic_path": "materials/mat-001/semantic.md",
+      "api_params_path": "materials/mat-001/api_params.json"
+    }
+  ],
+  
+  "resources": [
+    {
+      "uuid": "uuid-001",
+      "filename": "cat.jpg",
+      "path": "resources/cat.jpg"
+    }
+  ],
+  
+  "results": [
+    {
+      "filename": "model.glb",
+      "path": "results/model.glb"
+    }
+  ],
+  
+  "api": {
+    "vendor_task_id": "vendor-xxx",
+    "poll_count": 5
+  }
+}
+```
 
 #### URL资源处理
 
@@ -1040,6 +1103,12 @@ notification_retry_times: 3
 
 ## 9. 变更日志
 
+### v2.6 (2026-04-22)
+- 5.5 存储管理：更新目录结构为 {task_id}/{material_id}/
+- 新增 materials/ 目录：semantic.md + api_params.json
+- 新增 resources/ 目录：可被多个 material 复用
+- 新增 summary.json：任务汇总信息
+
 ### v2.5 (2026-04-22)
 - 更新 7、8 章内容，与全文保持一致
 
@@ -1085,7 +1154,7 @@ notification_retry_times: 3
 
 ## 10. 文件路径
 
-- 文档版本：v2.5
+- 文档版本：v2.6
 - 最后更新：2026-04-22
 
 ---
