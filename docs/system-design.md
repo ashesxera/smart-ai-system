@@ -1,7 +1,7 @@
 # Smart AI 任务系统设计文档
 
 ## 文档信息
-- 版本：v2.8
+- 版本：v2.9
 - 创建时间：2026-04-20
 - 更新时间：2026-04-22
 - 状态：架构设计阶段
@@ -160,11 +160,8 @@ Material（材料）=
 │  │delegators │   │ materials │   │   tasks  │                 │
 │  └───────────┘   └───────────┘   └───────────┘                 │
 │  ┌───────────┐   ┌───────────┐   ┌───────────┐                 │
-│  │material_  │   │ai_vendors │   │operations│                 │
-│  │resources  │   └───────────┘   └───────────┘                 │
-│  └───────────┘              ┌───────────┐                       │
-│                              │ settings  │                       │
-│                              └───────────┘                       │
+│  │ai_vendors │   │operations│   │ settings │                 │
+│  └───────────┘   └───────────┘   └───────────┘                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 ```
@@ -803,14 +800,11 @@ tos://{bucket}/
   
   "materials": [
     {
-      "material_id": "mat-001",
-      "semantic_path": "mat-001/semantic.md",
-      "api_params_path": "mat-001/api_params.json",
-      "input_file": {
-        "uuid": "uuid-001",
-        "filename": "cat.jpg",
-        "path": "mat-001/cat.jpg"
-      }
+      "task_id": "task-abc123",
+      "material_type": "image",
+      "file_name": "cat.jpg",
+      "resource_uuid": "uuid-001",
+      "path": "materials/uuid-001.jpg"
     }
   ],
   
@@ -842,11 +836,9 @@ tos://{bucket}/
      ↓
 下载到本地 /tmp/{uuid}.{ext}
      ↓
-上传到 TOS: smart-ai-tasks/{material_id}/resources/{uuid}.{ext}
+上传到 TOS: smart-ai-tasks/{task_id}/materials/{uuid}.ext
      ↓
 生成 presign URL 供供应商调用
-     ↓
-material_resources 表记录实际 TOS 路径
 ```
 
 #### 分享方式
@@ -944,8 +936,7 @@ operations 表（按 task_id 关联查询）
 | 表 | 说明 |
 |---|------|
 | delegators | 委托人表（多渠道用户） |
-| materials | 材料表（含语义理解） |
-| material_resources | 材料资源表 |
+| materials | 材料表（已合并资源信息） |
 | tasks | 任务表 |
 | ai_vendors | 供应商表 |
 | operations | 操作日志表 |
@@ -1098,6 +1089,13 @@ notification_retry_times: 3
 
 ## 9. 变更日志
 
+### v2.9 (2026-04-22)
+- 同步最新数据库设计：删除 material_resources 表
+- materials 表：material_id 改为 task_id，删除 status/semantic_path/api_params_path
+- materials 表：resource_type 改为 material_type
+- ER 图删除 material_resources
+- summary.json 结构更新
+
 ### v2.8 (2026-04-22)
 - 5.5 存储管理：目录结构 {material_id}/ 改为 materials/
 
@@ -1142,7 +1140,7 @@ notification_retry_times: 3
 - 架构升级为 5 层：OpenClaw集成层 + 对话理解层 + 任务编排层 + 后台任务层 + 数据库层
 - 支持多渠道用户抽象（delegators表）
 - 术语更新：apis → ai_vendors
-- 术语更新：resources → materials + material_resources
+- 术语更新：resources → materials
 - 新增后台任务层，支持 Cron 和独立进程两种方案
 - ER关系更新：委托人 → 材料 → 任务 → 供应商
 - 材料支持对话语义（semantic字段）
