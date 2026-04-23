@@ -1,10 +1,55 @@
-"""
-AI-3D 建模系统 - Skill 模块
+"""skill/__init__.py -- AI-3D Modeling Skill Handler
 
-飞书 Skill 入口，处理用户消息
+【已弃用】此模块已被 skill/standalone.py 取代，请使用新模块。
+
+---
+
+此模块提供 Skill 事件处理器，原本设计为通过 HTTP 服务接收飞书 webhook 事件。
+
+【为何不使用 HTTP 服务？】
+
+1. OpenClaw 的 Skill 机制是基于对话的：
+   - OpenClaw 接收用户消息后，将 SKILL.md 内容注入到 AI 的系统提示中
+   - AI 根据 SKILL.md 的指引，在对话中直接执行 Python 代码
+   - 不需要独立的 HTTP 服务来接收外部事件
+
+2. OpenClaw 内部触发 Skill：
+   - 当 AI 判断用户需要 3D 建模服务时，直接调用 skill 模块的函数
+   - 事件来源是 OpenClaw 内部（而非外部 HTTP 请求）
+   - 飞书消息通过 OpenClaw 的 channel 插件接收，已在内部转换为事件
+
+3. 简化架构：
+   - 减少部署复杂度（无需管理额外服务）
+   - 减少维护成本（无需监控 HTTP 服务的可用性）
+   - 任务结果由独立的 poller 进程轮询获取，无需服务端推送
+
+【当前使用的模块】
+
+请使用 `skill/standalone.py`，它提供了直接被 OpenClaw AI 调用的接口：
+
+```python
+from ai_3d_modeling.skill.standalone import handle_user_message
+
+result = await handle_user_message(
+    message_text="生成3D模型",
+    sender_id="ou_xxx",
+    sender_name="用户名",
+    chat_id="",
+    message_id="om_xxx",
+    images=[]
+)
+```
+
+---
+
+历史记录：
+- 2026-04-23: 初始版本，设计为 HTTP 服务模式
+- 2026-04-23: 重构为 standalone.py，直接被 OpenClaw 调用
 """
 
 import json
+import logging
+import os
 import re
 import httpx
 from typing import Dict, List, Optional, Tuple
@@ -12,6 +57,10 @@ from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorT
 from ai_3d_modeling.adapters import AdapterFactory
 from ai_3d_modeling.utils import generate_uuid, get_timestamp
 from ai_3d_modeling.notifier import FeishuNotifier
+
+# =============================================================================
+# 【已弃用】此类和相关代码不再使用，请使用 skill/standalone.py
+# =============================================================================
 
 
 # 意图关键词配置
@@ -30,12 +79,22 @@ HELP_KEYWORDS = ['帮助', 'help', '怎么用', '使用说明', 'help me']
 class SkillHandler:
     """Skill 事件处理器"""
     
-    def __init__(self, db: Database, notifier: FeishuNotifier):
+    def __init__(self, db: Database, notifier: FeishuNotifier, feishu_credentials: Dict = None):
+        """
+        初始化处理器
+        
+        Args:
+            db: 数据库实例
+            notifier: 通知器
+            feishu_credentials: 飞书凭证 {app_id, app_secret}
+        """
         self.db = db
         self.session_mgr = SessionManager(db)
         self.material_mgr = MaterialManager(db)
         self.task_mgr = VendorTaskManager(db)
         self.notifier = notifier
+        self.feishu_credentials = feishu_credentials or {}
+        self._feishu_token = None
     
     async def handle_event(self, event: Dict) -> Dict:
         """
@@ -189,31 +248,151 @@ class SkillHandler:
             }
         }
     
+    async def _download_feishu_image(self, image_key: str, message_id: str) -> Optional[str]:
+        """
+        从飞书下载图片并返回临时 URL
+        
+        Args:
+            image_key: 飞书图片 key (img_xxx)
+            message_id: 消息 ID
+        
+        Returns:
+            图片 URL 或 None
+        """
+        app_id = self.feishu_credentials.get('app_id', os.getenv('FEISHU_APP_ID', ''))
+        app_secret = self.feishu_credentials.get('app_secret', os.getenv('FEISHU_APP_SECRET', ''))
+        
+        if not app_id or not app_secret:
+            logging.warning("Feishu credentials not configured, cannot download images")
+            return None
+        
+        try:
+            # 获取 tenant access token
+            token = await self._get_feishu_token(app_id, app_secret)
+            if not token:
+                return None
+            
+            # 下载图片
+            url = f'https://open.feishu.cn/open-apis/im/v1/images/{image_key}'
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json'
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=headers)
+                
+                if response.status_code == 200:
+                    # 图片是二进制数据，上传到 TOS 获取 URL
+                    # 这里返回数据作为临时方案
+                    image_data = response.content
+                    logging.info(f"Downloaded image {image_key}, size: {len(image_data)} bytes")
+                    
+                    # 后续可以将图片上传到 TOS
+                    # 目前返回 None 表示需要后续处理
+                    return None
+                else:
+                    logging.error(f"Failed to download image: {response.status_code}")
+                    return None
+        
+        except Exception as e:
+            logging.error(f"Error downloading Feishu image: {e}")
+            return None
+    
+    async def _get_feishu_token(self, app_id: str, app_secret: str) -> Optional[str]:
+        """
+        获取飞书 tenant access token
+        
+        Args:
+            app_id: 飞书 App ID
+            app_secret: 飞书 App Secret
+        
+        Returns:
+            token 字符串或 None
+        """
+        try:
+            url = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal'
+            headers = {'Content-Type': 'application/json'}
+            data = {
+                'app_id': app_id,
+                'app_secret': app_secret
+            }
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, headers=headers, json=data)
+                result = response.json()
+                
+                if result.get('code') == 0:
+                    return result.get('tenant_access_token')
+                else:
+                    logging.error(f"Failed to get Feishu token: {result}")
+                    return None
+        
+        except Exception as e:
+            logging.error(f"Error getting Feishu token: {e}")
+            return None
+    
     def _extract_images(self, event: Dict) -> List[str]:
         """
-        从事件中提取图片
+        从事件中提取图片 URL
+        
+        支持的图片来源:
+        1. 图片消息 (message_type=image) - 通过飞书 API 下载
+        2. 合并转发消息中的图片
+        3. 文本消息中的 URL
         
         Returns:
             图片 URL 列表
         """
         image_urls = []
         message = event.get('event', {}).get('message', {})
+        message_type = message.get('message_type', '')
+        message_id = message.get('message_id', '')
         
-        # 图片消息
-        if message.get('message_type') == 'image':
+        # 1. 图片消息
+        if message_type == 'image':
             content_str = message.get('content', '{}')
             try:
                 content = json.loads(content_str)
                 image_key = content.get('image_key')
                 if image_key:
-                    # 实际需要通过飞书 API 下载图片获取 URL
-                    # 这里返回 image_key 作为占位
-                    image_urls.append(f'feishu://image/{image_key}')
-            except:
-                pass
+                    # image_key 需要通过飞书 API 下载
+                    # 目前返回 feishu://image/{key} 作为占位
+                    # 实际下载在 _download_feishu_image 中完成
+                    image_urls.append(f'feishu://image/{image_key}?msg_id={message_id}')
+                    logging.info(f"Found image message: {image_key}")
+            except json.JSONDecodeError:
+                logging.warning(f"Failed to parse image message content: {content_str}")
         
-        # 合并转发消息中的图片
-        # 其他类型的图片提取...
+        # 2. 文本消息中的图片 URL
+        content_str = message.get('content', '{}')
+        try:
+            content = json.loads(content_str)
+            text = content.get('text', '')
+            
+            # 匹配常见的图片 URL 模式
+            import re
+            url_pattern = r'https?://[^\s"<>]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s"<>]*)?'
+            urls = re.findall(url_pattern, text, re.IGNORECASE)
+            image_urls.extend(urls)
+            
+        except json.JSONDecodeError:
+            # 纯文本消息
+            pass
+        
+        # 3. 合并转发消息 (mixed)
+        if message_type == 'mixed':
+            try:
+                content = json.loads(content_str)
+                items = content.get('items', [])
+                for item in items:
+                    if item.get('message_type') == 'image':
+                        item_content = json.loads(item.get('content', '{}'))
+                        image_key = item_content.get('image_key')
+                        if image_key:
+                            image_urls.append(f'feishu://image/{image_key}?msg_id={item.get("message_id", "")}')
+            except (json.JSONDecodeError, KeyError) as e:
+                logging.warning(f"Failed to parse mixed message: {e}")
         
         return image_urls
     
@@ -426,19 +605,31 @@ class SkillHandler:
         }
 
 
-async def handle_event(event: Dict) -> Dict:
+async def handle_event(event: Dict, config: Dict = None) -> Dict:
     """
     Skill 入口函数
     
     Args:
         event: 飞书事件字典
+        config: 配置字典 (可选)
     
     Returns:
         响应字典
     """
-    # 初始化（实际应该通过依赖注入）
-    db = Database('ai-3d-modeling.db')
-    notifier = FeishuNotifier('http://127.0.0.1:18789/webhook/notify')
+    config = config or {}
     
-    handler = SkillHandler(db, notifier)
+    # 从环境变量或配置读取
+    db_path = config.get('db_path', os.getenv('DB_PATH', 'ai-3d-modeling.db'))
+    gateway_url = config.get('gateway_url', os.getenv('GATEWAY_URL', 'http://127.0.0.1:18789/webhook/notify'))
+    
+    feishu_credentials = {
+        'app_id': config.get('feishu_app_id') or os.getenv('FEISHU_APP_ID', ''),
+        'app_secret': config.get('feishu_app_secret') or os.getenv('FEISHU_APP_SECRET', ''),
+    }
+    
+    # 初始化组件
+    db = Database(db_path)
+    notifier = FeishuNotifier(gateway_url)
+    
+    handler = SkillHandler(db, notifier, feishu_credentials)
     return await handler.handle_event(event)
