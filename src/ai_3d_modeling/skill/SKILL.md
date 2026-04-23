@@ -3,7 +3,7 @@ name: ai-3d-modeling
 description: |
   AI-3D Modeling System - 3D model generation from images/text via vendor APIs
   激活关键词: 3D, 三维, 建模, 生成模型, obj, glb, stl, make 3d, generate model, create model
-alwaysActive: false
+alwaysActive: true
 ---
 
 # AI-3D Modeling System
