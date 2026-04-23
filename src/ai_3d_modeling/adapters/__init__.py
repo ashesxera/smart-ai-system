@@ -127,10 +127,11 @@ class TemplateResponseParser:
 class BaseAdapter:
     """适配器基类"""
     
-    def __init__(self, vendor_config: Dict):
+    def __init__(self, vendor_config: Dict, api_key: str = None):
         self.config = vendor_config
         self.request_builder = TemplateRequestBuilder()
         self.response_parser = TemplateResponseParser()
+        self._api_key = api_key
     
     def build_request(self, material: Dict) -> Dict:
         """构建API请求体"""
@@ -153,8 +154,11 @@ class BaseAdapter:
         return {}
     
     def _get_api_key(self) -> str:
-        """获取API密钥（子类可覆盖）"""
-        raise NotImplementedError("Subclass must implement _get_api_key()")
+        """获取API密钥"""
+        if self._api_key:
+            return self._api_key
+        import os
+        return os.environ.get('ARK_API_KEY', '')
     
     def get_endpoint(self) -> str:
         """获取提交任务的API端点"""
@@ -168,6 +172,59 @@ class BaseAdapter:
     def get_timeout(self) -> int:
         """获取超时时间（分钟）"""
         return self.config.get('timeout_minutes', 30)
+    
+    async def submit(self, request_body: Dict) -> Dict:
+        """
+        提交任务到供应商API
+        
+        Args:
+            request_body: 请求体字典
+        
+        Returns:
+            API 响应字典
+        """
+        import httpx
+        
+        headers = self.get_auth_headers()
+        headers['Content-Type'] = 'application/json'
+        
+        timeout = self.get_timeout()
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.get_endpoint(),
+                json=request_body,
+                headers=headers,
+                timeout=timeout
+            )
+            response.raise_for_status()
+            return response.json()
+    
+    async def query_status(self, vendor_task_id: str) -> Dict:
+        """
+        查询任务状态
+        
+        Args:
+            vendor_task_id: 供应商任务ID
+        
+        Returns:
+            状态响应字典
+        """
+        import httpx
+        
+        headers = self.get_auth_headers()
+        
+        query_endpoint = self.get_query_endpoint(vendor_task_id)
+        timeout = self.get_timeout()
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                query_endpoint,
+                headers=headers,
+                timeout=timeout
+            )
+            response.raise_for_status()
+            return response.json()
 
 
 class AdapterFactory:
@@ -196,9 +253,7 @@ class AdapterFactory:
         adapter_class = cls._adapters.get(adapter_name, BaseAdapter)
         
         # 创建实例并注入API密钥
-        instance = adapter_class(vendor_config)
-        if api_key:
-            instance._api_key = api_key
+        instance = adapter_class(vendor_config, api_key)
         
         return instance
     
