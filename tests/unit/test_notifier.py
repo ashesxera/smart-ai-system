@@ -44,6 +44,16 @@ def notifier():
 class TestResultSummarizer:
     """ResultSummarizer 测试"""
     
+    def _create_material(self, db, session_uuid, material_uuid):
+        """辅助方法：创建测试材料"""
+        material_mgr = MaterialManager(db)
+        material_mgr.create(
+            material_uuid=material_uuid,
+            session_uuid=session_uuid,
+            material_type='image',
+            source_type='feishu'
+        )
+    
     def test_summarize_success_results(self, db, summarizer):
         """TC-SUM-001: 汇总成功结果"""
         # 创建测试数据
@@ -56,11 +66,14 @@ class TestResultSummarizer:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_sum_001', 'mat_sum_1')
+        self._create_material(db, 'sess_sum_001', 'mat_sum_2')
+        
         # 创建成功任务
         task_mgr.create(
             vendor_task_uuid='task_sum_1',
             session_uuid='sess_sum_001',
-            material_uuid='mat_001',
+            material_uuid='mat_sum_1',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -71,7 +84,7 @@ class TestResultSummarizer:
         task_mgr.create(
             vendor_task_uuid='task_sum_2',
             session_uuid='sess_sum_001',
-            material_uuid='mat_001',
+            material_uuid='mat_sum_2',
             vendor_id='vendor_2',
             vendor_name='Vendor2',
             model_name='model-2'
@@ -97,10 +110,12 @@ class TestResultSummarizer:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_done_001', 'mat_done_1')
+        
         task_mgr.create(
             vendor_task_uuid='task_done_1',
             session_uuid='sess_done_001',
-            material_uuid='mat_001',
+            material_uuid='mat_done_1',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -120,10 +135,12 @@ class TestResultSummarizer:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_done_002', 'mat_done_2')
+        
         task_mgr.create(
             vendor_task_uuid='task_done_2',
             session_uuid='sess_done_002',
-            material_uuid='mat_001',
+            material_uuid='mat_done_2',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -274,12 +291,22 @@ class TestNotifierIntegration:
             channel_user_id='ou_123'
         )
         
+        # 创建多个材料
+        for i in range(3):
+            material_mgr = MaterialManager(db)
+            material_mgr.create(
+                material_uuid=f'mat_flow_{i}',
+                session_uuid='sess_flow_001',
+                material_type='image',
+                source_type='feishu'
+            )
+        
         # 创建多个任务
         for i in range(3):
             task_mgr.create(
                 vendor_task_uuid=f'task_flow_{i}',
                 session_uuid='sess_flow_001',
-                material_uuid='mat_001',
+                material_uuid=f'mat_flow_{i}',
                 vendor_id=f'vendor_{i}',
                 vendor_name=f'Vendor{i}',
                 model_name=f'model-{i}'

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
-from ai_3d_modeling.db import Database, SessionManager, VendorTaskManager
+from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
 from ai_3d_modeling.poller import Poller
 from ai_3d_modeling.storage import StorageManager
 from ai_3d_modeling.notifier import FeishuNotifier
@@ -84,6 +84,16 @@ class TestPollerInit:
 class TestPollerTaskPolling:
     """任务轮询测试"""
     
+    def _create_material(self, db, session_uuid, material_uuid):
+        """辅助方法：创建测试材料"""
+        material_mgr = MaterialManager(db)
+        material_mgr.create(
+            material_uuid=material_uuid,
+            session_uuid=session_uuid,
+            material_type='image',
+            source_type='feishu'
+        )
+    
     @pytest.mark.asyncio
     async def test_poll_task_success(self, db, poller, mock_storage):
         """TC-POLLER-003: 成功处理"""
@@ -103,10 +113,12 @@ class TestPollerTaskPolling:
             channel_user_id='ou_test'
         )
         
+        self._create_material(db, 'sess_poll', 'mat_poll')
+        
         task_mgr.create(
             vendor_task_uuid='task_poll_001',
             session_uuid='sess_poll',
-            material_uuid='mat_001',
+            material_uuid='mat_poll',
             vendor_id='vendor_test',
             vendor_name='Test',
             model_name='test-model'
@@ -137,10 +149,12 @@ class TestPollerTaskPolling:
             channel_user_id='ou_test'
         )
         
+        self._create_material(db, 'sess_fail', 'mat_fail')
+        
         task_mgr.create(
             vendor_task_uuid='task_fail_001',
             session_uuid='sess_fail',
-            material_uuid='mat_001',
+            material_uuid='mat_fail',
             vendor_id='vendor_test',
             vendor_name='Test',
             model_name='test-model'
@@ -155,6 +169,16 @@ class TestPollerTaskPolling:
 class TestPollerSummaries:
     """汇总测试"""
     
+    def _create_material(self, db, session_uuid, material_uuid):
+        """辅助方法：创建测试材料"""
+        material_mgr = MaterialManager(db)
+        material_mgr.create(
+            material_uuid=material_uuid,
+            session_uuid=session_uuid,
+            material_type='image',
+            source_type='feishu'
+        )
+    
     @pytest.mark.asyncio
     async def test_check_all_sessions_done(self, db, poller, mock_notifier):
         """TC-POLLER-002: 检查所有会话完成"""
@@ -167,11 +191,13 @@ class TestPollerSummaries:
             channel_user_id='ou_test'
         )
         
+        self._create_material(db, 'sess_all_done', 'mat_all_done')
+        
         # 创建一个已成功的任务
         task_mgr.create(
             vendor_task_uuid='task_done_check',
             session_uuid='sess_all_done',
-            material_uuid='mat_001',
+            material_uuid='mat_all_done',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -193,10 +219,12 @@ class TestPollerSummaries:
             channel_user_id='ou_test'
         )
         
+        self._create_material(db, 'sess_not_done', 'mat_not_done')
+        
         task_mgr.create(
             vendor_task_uuid='task_not_done',
             session_uuid='sess_not_done',
-            material_uuid='mat_001',
+            material_uuid='mat_not_done',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -231,6 +259,16 @@ class TestPollerInterval:
 class TestPollOnce:
     """单次轮询测试"""
     
+    def _create_material(self, db, session_uuid, material_uuid):
+        """辅助方法：创建测试材料"""
+        material_mgr = MaterialManager(db)
+        material_mgr.create(
+            material_uuid=material_uuid,
+            session_uuid=session_uuid,
+            material_type='image',
+            source_type='feishu'
+        )
+    
     @pytest.mark.asyncio
     async def test_poll_no_running_tasks(self, db, poller):
         """TC-POLLER-001: 无运行中任务"""
@@ -257,10 +295,12 @@ class TestPollOnce:
             channel_user_id='ou_test'
         )
         
+        self._create_material(db, 'sess_poll_once', 'mat_poll_once')
+        
         task_mgr.create(
             vendor_task_uuid='task_poll_once',
             session_uuid='sess_poll_once',
-            material_uuid='mat_001',
+            material_uuid='mat_poll_once',
             vendor_id='vendor_poll',
             vendor_name='Poll',
             model_name='poll-model'

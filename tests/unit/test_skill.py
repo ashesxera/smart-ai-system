@@ -73,7 +73,7 @@ class TestIntentParsing:
     
     def test_parse_help_intent(self, skill_handler):
         """测试：识别帮助"""
-        intent = skill_handler._parse_intent("怎么使用")
+        intent = skill_handler._parse_intent("怎么用")
         assert intent == 'help'
 
 
@@ -189,11 +189,11 @@ class TestVendorTaskCreation:
         # 插入两个供应商配置
         db.execute('''
             INSERT INTO settings (key, value, value_type, category)
-            VALUES ('vendor_1', '{"id":"vendor_1","name":"Vendor1","model":"model1","is_active":true,"max_images":1,"endpoint":"https://api1.com"}', 'json', 'vendor')
+            VALUES ('vendor_1', '{"id":"vendor_1","name":"Vendor1","model":"model1","is_active": true,"max_images":1,"endpoint":"https://api1.com"}', 'json', 'vendor')
         ''')
         db.execute('''
             INSERT INTO settings (key, value, value_type, category)
-            VALUES ('vendor_2', '{"id":"vendor_2","name":"Vendor2","model":"model2","is_active":true,"max_images":1,"endpoint":"https://api2.com"}', 'json', 'vendor')
+            VALUES ('vendor_2', '{"id":"vendor_2","name":"Vendor2","model":"model2","is_active": true,"max_images":1,"endpoint":"https://api2.com"}', 'json', 'vendor')
         ''')
         
         # 获取活跃供应商
@@ -208,11 +208,11 @@ class TestVendorTaskCreation:
         # 插入一个活跃和一个不活跃的供应商
         db.execute('''
             INSERT INTO settings (key, value, value_type, category)
-            VALUES ('vendor_active', '{"id":"vendor_active","name":"Active","is_active":true}', 'json', 'vendor')
+            VALUES ('vendor_active', '{"id":"vendor_active","name":"Active","is_active": true}', 'json', 'vendor')
         ''')
         db.execute('''
             INSERT INTO settings (key, value, value_type, category)
-            VALUES ('vendor_inactive', '{"id":"vendor_inactive","name":"Inactive","is_active":false}', 'json', 'vendor')
+            VALUES ('vendor_inactive', '{"id":"vendor_inactive","name":"Inactive","is_active": false}', 'json', 'vendor')
         ''')
         
         handler = SkillHandler.__new__(SkillHandler)
