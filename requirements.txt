@@ -6,8 +6,7 @@ python >= 3.10
 # HTTP Client
 httpx >= 0.24.0
 
-# Database
-sqlite3 (built-in)
+# Database (sqlite3 is built-in)
 
 # JSON/YAML
 pyyaml >= 6.0
