@@ -702,3 +702,451 @@ MOCK_FAILURE_RESPONSE = {
     "error": {"code": "IMAGE_TOO_SMALL", "message": "图片分辨率过低"}
 }
 ```
+
+---
+
+## 9. notifier 模块测试
+
+### 9.1 ResultSummarizer 测试
+
+#### TC-SUM-001: 汇总成功结果
+
+```python
+def test_summarize_success_results():
+    """
+    测试：汇总所有成功的供应商结果
+    场景：
+        - 3个任务，2个成功，1个失败
+    预期：
+        summary = {
+            "total_vendors": 3,
+            "succeeded": 2,
+            "failed": 1
+        }
+    """
+    pass
+```
+
+#### TC-SUM-002: 检查所有任务完成
+
+```python
+def test_check_all_done():
+    """
+    测试：检查会话是否所有供应商任务都完成
+    场景1：3个任务都 succeeded -> True
+    场景2：2个 succeeded, 1个 running -> False
+    场景3：1个 failed, 2个 succeeded -> True
+    """
+    pass
+```
+
+#### TC-SUM-003: 计算总耗时
+
+```python
+def test_calculate_total_duration():
+    """
+    测试：计算从提交到所有任务完成的总耗时
+    预期：返回秒数
+    """
+    pass
+```
+
+#### TC-SUM-004: 构建材料预览信息
+
+```python
+def test_build_materials_preview():
+    """
+    测试：构建材料的预览信息
+    预期：包含类型、数量、预览URL
+    """
+    pass
+```
+
+### 9.2 FeishuNotifier 测试
+
+#### TC-NOTIFY-001: 构建飞书卡片
+
+```python
+def test_build_feishu_card():
+    """
+    测试：构建飞书消息卡片
+    预期：卡片包含标题、摘要、结果列表
+    """
+    pass
+```
+
+#### TC-NOTIFY-002: 发送汇总通知
+
+```python
+def test_send_summary_notification():
+    """
+    测试：发送汇总通知到飞书
+    预期：
+        - 调用 gateway webhook
+        - 传递正确的 session_uuid 和 summary
+    """
+    pass
+```
+
+#### TC-NOTIFY-003: 通知内容格式化
+
+```python
+def test_format_duration_in_card():
+    """
+    测试：在通知卡片中格式化时长
+    输入：125秒
+    预期：显示 "2分5秒"
+    """
+    pass
+```
+
+#### TC-NOTIFY-004: 失败结果展示
+
+```python
+def test_show_failure_in_card():
+    """
+    测试：在通知卡片中展示失败信息
+    预期：显示错误码和错误消息
+    """
+    pass
+```
+
+#### TC-NOTIFY-005: 成功结果展示
+
+```python
+def test_show_success_in_card():
+    """
+    测试：在通知卡片中展示成功结果
+    预期：显示供应商名称、文件格式、下载链接
+    """
+    pass
+```
+
+---
+
+## 10. skill 模块测试
+
+### 10.1 意图解析测试
+
+#### TC-SKILL-INTENT-001: 识别3D建模请求
+
+```python
+def test_parse_3d_modeling_intent():
+    """
+    测试：解析用户消息，识别3D建模意图
+    输入："帮我生成一个卡通人物的3D模型"
+    预期：返回 intent = "3d_modeling"
+    """
+    pass
+```
+
+#### TC-SKILL-INTENT-002: 识别取消意图
+
+```python
+def test_parse_cancel_intent():
+    """
+    测试：解析取消意图
+    输入："取消刚才的请求"
+    预期：返回 intent = "cancel"
+    """
+    pass
+```
+
+#### TC-SKILL-INTENT-003: 非3D请求
+
+```python
+def test_parse_non_3d_intent():
+    """
+    测试：解析非3D建模请求
+    输入："今天天气怎么样"
+    预期：返回 intent = "other" 或 None
+    """
+    pass
+```
+
+### 10.2 材料提取测试
+
+#### TC-SKILL-EXTRACT-001: 提取图片
+
+```python
+def test_extract_image_from_message():
+    """
+    测试：从消息中提取图片URL
+    输入：包含图片的消息
+    预期：返回 image_urls 列表
+    """
+    pass
+```
+
+#### TC-SKILL-EXTRACT-002: 提取文字描述
+
+```python
+def test_extract_text_description():
+    """
+    测试：从消息中提取文字描述
+    输入："生成一个穿着西装的绅士"
+    预期：返回 text_content = "生成一个穿着西装的绅士"
+    """
+    pass
+```
+
+#### TC-SKILL-EXTRACT-003: 混合提取
+
+```python
+def test_extract_mixed_content():
+    """
+    测试：同时提取图片和文字
+    预期：image_urls 和 text_content 都不为空
+    """
+    pass
+```
+
+### 10.3 任务创建测试
+
+#### TC-SKILL-CREATE-001: 创建会话
+
+```python
+def test_create_session():
+    """
+    测试：创建新的用户会话
+    预期：
+        - session_uuid 生成
+        - 记录 channel_type, channel_user_id
+        - status = "active", phase = "pending"
+    """
+    pass
+```
+
+#### TC-SKILL-CREATE-002: 创建材料记录
+
+```python
+def test_create_material_record():
+    """
+    测试：创建材料记录
+    预期：
+        - material_uuid 生成
+        - image_urls 和 text_content 正确存储
+    """
+    pass
+```
+
+#### TC-SKILL-CREATE-003: 批量创建供应商任务
+
+```python
+def test_create_vendor_tasks_batch():
+    """
+    测试：同时向多个供应商创建任务
+    预期：
+        - 为每个活跃供应商创建一个任务
+        - vendor_task_uuid 唯一
+        - status = "pending"
+    """
+    pass
+```
+
+#### TC-SKILL-CREATE-004: 跳过不活跃供应商
+
+```python
+def test_skip_inactive_vendors():
+    """
+    测试：只向活跃供应商创建任务
+    预期：is_active=false 的供应商不创建任务
+    """
+    pass
+```
+
+### 10.4 响应测试
+
+#### TC-SKILL-RESP-001: 返回处理中消息
+
+```python
+def test_response_processing():
+    """
+    测试：用户提交后返回处理中消息
+    预期：包含"正在处理中"等提示
+    """
+    pass
+```
+
+#### TC-SKILL-RESP-002: 返回错误消息
+
+```python
+def test_response_error():
+    """
+    测试：处理失败时返回错误消息
+    预期：友好提示错误原因
+    """
+    pass
+```
+
+---
+
+## 11. 端到端测试
+
+### 11.1 完整流程测试
+
+#### TC-E2E-001: 完整成功流程
+
+```python
+async def test_complete_success_flow():
+    """
+    测试：完整的成功流程
+    1. 用户发送消息
+    2. 系统解析意图和材料
+    3. 创建会话、材料、任务
+    4. 提交到供应商
+    5. 轮询获取结果
+    6. 下载并上传TOS
+    7. 发送汇总通知
+    
+    预期：用户收到成功通知，包含下载链接
+    """
+    pass
+```
+
+#### TC-E2E-002: 部分供应商失败
+
+```python
+async def test_partial_failure_flow():
+    """
+    测试：部分供应商失败的流程
+    场景：3个供应商，1个失败，2个成功
+    
+    预期：通知中显示成功和失败的结果
+    """
+    pass
+```
+
+#### TC-E2E-003: 全部供应商失败
+
+```python
+async def test_all_failure_flow():
+    """
+    测试：全部供应商失败的流程
+    
+    预期：通知中说明所有任务失败
+    """
+    pass
+```
+
+#### TC-E2E-004: 超时处理
+
+```python
+async def test_timeout_handling():
+    """
+    测试：任务超时处理
+    场景：供应商任务超过 timeout_minutes 未完成
+    
+    预期：
+        - status 更新为 "timeout"
+        - 发送超时通知
+    """
+    pass
+```
+
+### 11.2 异常流程测试
+
+#### TC-E2E-005: 图片下载失败
+
+```python
+async def test_image_download_failure():
+    """
+    测试：图片下载失败处理
+    
+    预期：
+        - 记录错误日志
+        - 任务状态更新为 failed
+        - 通知用户
+    """
+    pass
+```
+
+#### TC-E2E-006: TOS上传失败
+
+```python
+async def test_tos_upload_failure():
+    """
+    测试：TOS上传失败处理
+    
+    预期：
+        - 重试机制
+        - 记录错误日志
+        - 通知用户
+    """
+    pass
+```
+
+#### TC-E2E-007: 飞书通知发送失败
+
+```python
+async def test_feishu_notify_failure():
+    """
+    测试：飞书通知发送失败处理
+    
+    预期：
+        - 重试机制
+        - 不影响任务状态
+    """
+    pass
+```
+
+---
+
+## 12. 测试数据准备
+
+### 12.1 Mock 数据总结
+
+| 数据类型 | 用途 |
+|----------|------|
+| MOCK_VENDOR_CONFIG | 供应商配置 |
+| MOCK_SUCCESS_RESPONSE | 成功响应 |
+| MOCK_RUNNING_RESPONSE | 运行中响应 |
+| MOCK_FAILURE_RESPONSE | 失败响应 |
+| MOCK_SESSION | 会话数据 |
+| MOCK_MATERIAL | 材料数据 |
+| MOCK_SUMMARY | 汇总报告 |
+
+### 12.2 Mock 汇总数据
+
+```python
+MOCK_SUMMARY = {
+    "event": "all_vendors_completed",
+    "session_uuid": "sess_test_001",
+    "summary": {
+        "total_vendors": 3,
+        "succeeded": 2,
+        "failed": 1,
+        "total_time_seconds": 245
+    },
+    "results": [
+        {
+            "vendor_name": "豆包Seed3D",
+            "vendor_id": "vendor_ark_seed3d",
+            "status": "succeeded",
+            "file_format": "glb",
+            "share_url": "https://tos.example.com/...",
+            "download_expires": "2026-04-24 12:00:00"
+        },
+        {
+            "vendor_name": "影眸 Hyper3D",
+            "vendor_id": "vendor_ark_yingmou",
+            "status": "succeeded",
+            "file_format": "glb",
+            "share_url": "https://tos.example.com/...",
+            "download_expires": "2026-04-24 12:00:00"
+        },
+        {
+            "vendor_name": "数美 Hitem3D",
+            "vendor_id": "vendor_ark_shumei",
+            "status": "failed",
+            "error_code": "IMAGE_TOO_SMALL",
+            "error_message": "图片分辨率过低"
+        }
+    ],
+    "materials": {
+        "type": "image",
+        "count": 1,
+        "preview_url": "https://example.com/input.jpg"
+    }
+}
+```
