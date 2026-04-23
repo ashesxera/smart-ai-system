@@ -10,11 +10,11 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from .db import Database, SessionManager, VendorTaskManager
-from .adapters import AdapterFactory
-from .storage import StorageManager
-from .notifier import ResultSummarizer, FeishuNotifier
-from .utils import get_timestamp
+from ai_3d_modeling.db import Database, SessionManager, VendorTaskManager
+from ai_3d_modeling.adapters import AdapterFactory
+from ai_3d_modeling.storage import StorageManager
+from ai_3d_modeling.notifier import ResultSummarizer, FeishuNotifier
+from ai_3d_modeling.utils import get_timestamp
 
 
 logger = logging.getLogger(__name__)

@@ -8,10 +8,10 @@ import json
 import re
 import httpx
 from typing import Dict, List, Optional, Tuple
-from .db import Database, SessionManager, MaterialManager, VendorTaskManager
-from .adapters import AdapterFactory
-from .utils import generate_uuid, get_timestamp
-from .notifier import FeishuNotifier
+from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
+from ai_3d_modeling.adapters import AdapterFactory
+from ai_3d_modeling.utils import generate_uuid, get_timestamp
+from ai_3d_modeling.notifier import FeishuNotifier
 
 
 # 意图关键词配置

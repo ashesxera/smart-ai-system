@@ -24,10 +24,10 @@ class TestTemplateRequestBuilder:
         """TC-ADAPTER-001: 构建简单图片请求"""
         builder = TemplateRequestBuilder()
         
-        # 修复 mock_vendor_config 中的 JSON 语法错误
+        # 使用正确的配置
         mock_vendor_config['request_template'] = {
             "model": "${model}",
-            "content": ${content}  # 应该是字符串模板
+            "content": "${content}"
         }
         
         result = builder.build(mock_vendor_config, mock_material_single_image)

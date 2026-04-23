@@ -6,8 +6,8 @@ AI-3D 建模系统 - 通知模块
 
 import httpx
 from typing import Dict, List, Optional
-from .db import Database, SessionManager, MaterialManager, VendorTaskManager
-from .utils import format_duration, format_timestamp
+from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
+from ai_3d_modeling.utils import format_duration, format_timestamp
 
 
 class ResultSummarizer:

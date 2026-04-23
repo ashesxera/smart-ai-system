@@ -241,6 +241,16 @@ class TestMaterialManager:
 class TestVendorTaskManager:
     """VendorTaskManager 测试"""
     
+    def _create_material(self, db, session_uuid, material_uuid):
+        """辅助方法：创建测试材料"""
+        material_mgr = MaterialManager(db)
+        material_mgr.create(
+            material_uuid=material_uuid,
+            session_uuid=session_uuid,
+            material_type='image',
+            source_type='feishu'
+        )
+    
     def test_create_vendor_task(self, db):
         """TC-TASK-001: 创建供应商任务"""
         session_mgr = SessionManager(db)
@@ -251,6 +261,8 @@ class TestVendorTaskManager:
             channel_type='feishu',
             channel_user_id='ou_123'
         )
+        
+        self._create_material(db, 'sess_task_001', 'mat_001')
         
         task = task_mgr.create(
             vendor_task_uuid='task_test_001',
@@ -283,10 +295,12 @@ class TestVendorTaskManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_running', 'mat_running')
+        
         task_mgr.create(
             vendor_task_uuid='task_running_1',
             session_uuid='sess_running',
-            material_uuid='mat_001',
+            material_uuid='mat_running',
             vendor_id='vendor_seed3d',
             vendor_name='Seed3D',
             model_name='doubao-seed3d'
@@ -313,10 +327,12 @@ class TestVendorTaskManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_status', 'mat_status')
+        
         task_mgr.create(
             vendor_task_uuid='task_status_001',
             session_uuid='sess_status',
-            material_uuid='mat_001',
+            material_uuid='mat_status',
             vendor_id='vendor_seed3d',
             vendor_name='Seed3D',
             model_name='doubao-seed3d'
@@ -338,10 +354,12 @@ class TestVendorTaskManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_vendor_id', 'mat_vendor_id')
+        
         task_mgr.create(
             vendor_task_uuid='task_vid_001',
             session_uuid='sess_vendor_id',
-            material_uuid='mat_001',
+            material_uuid='mat_vendor_id',
             vendor_id='vendor_seed3d',
             vendor_name='Seed3D',
             model_name='doubao-seed3d'
@@ -364,10 +382,12 @@ class TestVendorTaskManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_poll', 'mat_poll')
+        
         task_mgr.create(
             vendor_task_uuid='task_poll_001',
             session_uuid='sess_poll',
-            material_uuid='mat_001',
+            material_uuid='mat_poll',
             vendor_id='vendor_seed3d',
             vendor_name='Seed3D',
             model_name='doubao-seed3d'
@@ -390,10 +410,13 @@ class TestVendorTaskManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_done', 'mat_done_1')
+        self._create_material(db, 'sess_done', 'mat_done_2')
+        
         task_mgr.create(
             vendor_task_uuid='task_done_1',
             session_uuid='sess_done',
-            material_uuid='mat_001',
+            material_uuid='mat_done_1',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -401,7 +424,7 @@ class TestVendorTaskManager:
         task_mgr.create(
             vendor_task_uuid='task_done_2',
             session_uuid='sess_done',
-            material_uuid='mat_001',
+            material_uuid='mat_done_2',
             vendor_id='vendor_2',
             vendor_name='Vendor2',
             model_name='model-2'
@@ -424,10 +447,13 @@ class TestVendorTaskManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_partial', 'mat_partial_1')
+        self._create_material(db, 'sess_partial', 'mat_partial_2')
+        
         task_mgr.create(
             vendor_task_uuid='task_part_1',
             session_uuid='sess_partial',
-            material_uuid='mat_001',
+            material_uuid='mat_partial_1',
             vendor_id='vendor_1',
             vendor_name='Vendor1',
             model_name='model-1'
@@ -435,7 +461,7 @@ class TestVendorTaskManager:
         task_mgr.create(
             vendor_task_uuid='task_part_2',
             session_uuid='sess_partial',
-            material_uuid='mat_001',
+            material_uuid='mat_partial_2',
             vendor_id='vendor_2',
             vendor_name='Vendor2',
             model_name='model-2'
@@ -451,6 +477,16 @@ class TestVendorTaskManager:
 class TestResultManager:
     """ResultManager 测试"""
     
+    def _create_material(self, db, session_uuid, material_uuid):
+        """辅助方法：创建测试材料"""
+        material_mgr = MaterialManager(db)
+        material_mgr.create(
+            material_uuid=material_uuid,
+            session_uuid=session_uuid,
+            material_type='image',
+            source_type='feishu'
+        )
+    
     def test_create_result(self, db):
         """测试：创建结果记录"""
         session_mgr = SessionManager(db)
@@ -463,10 +499,12 @@ class TestResultManager:
             channel_user_id='ou_123'
         )
         
+        self._create_material(db, 'sess_result', 'mat_result')
+        
         task_mgr.create(
             vendor_task_uuid='task_result_001',
             session_uuid='sess_result',
-            material_uuid='mat_001',
+            material_uuid='mat_result',
             vendor_id='vendor_seed3d',
             vendor_name='Seed3D',
             model_name='doubao-seed3d'

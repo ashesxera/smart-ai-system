@@ -7,7 +7,7 @@ TOS 文件存储管理
 import os
 import subprocess
 from typing import Optional
-from .utils import build_tos_path, sanitize_path
+from ai_3d_modeling.utils import build_tos_path, sanitize_path
 
 
 class StorageManager:

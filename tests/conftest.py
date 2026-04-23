@@ -49,7 +49,7 @@ def mock_vendor_config():
         "max_image_size_mb": 10,
         "request_template": {
             "model": "${model}",
-            "content": ${content}
+            "content": "${content}"
         },
         "content_template": [
             {"type": "image_url", "image_url": {"url": "${image_url_0}"}}
