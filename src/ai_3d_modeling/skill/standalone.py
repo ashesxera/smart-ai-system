@@ -41,6 +41,20 @@ from ai_3d_modeling.notifier import FeishuNotifier
 logger = logging.getLogger(__name__)
 
 
+def get_gateway_url() -> str:
+    """
+    获取 Gateway URL
+    
+    优先级：
+    1. 环境变量 GATEWAY_URL
+    2. 默认值 http://127.0.0.1:18789/webhook/notify
+    
+    Returns:
+        Gateway URL 字符串
+    """
+    return os.getenv('GATEWAY_URL', 'http://127.0.0.1:18789/webhook/notify')
+
+
 # ============================================================================
 # 核心处理函数 (供 OpenClaw AI 直接调用)
 # ============================================================================
@@ -132,6 +146,15 @@ async def process_modeling_request(
         )
         
         logger.info(f"Submitted {len(tasks)} vendor tasks for session {session_uuid}")
+        
+        # 6. 发送任务接收回执通知
+        await _send_acknowledgment(
+            sender_id=sender_id,
+            chat_id=chat_id,
+            session_uuid=session_uuid,
+            tasks_count=len(tasks),
+            material_type=material_type
+        )
         
         return {
             'success': True,
@@ -414,6 +437,128 @@ def _build_success_message(tasks_count: int, material_type: str) -> str:
     msg += f"完成后我会通知您~"
     
     return msg
+
+
+async def _send_acknowledgment(
+    sender_id: str,
+    chat_id: str,
+    session_uuid: str,
+    tasks_count: int,
+    material_type: str
+) -> bool:
+    """
+    发送任务接收回执通知
+    
+    使用与 poller 相同的 FeishuNotifier 机制发送通知。
+    
+    Args:
+        sender_id: 发送者 ID
+        chat_id: 会话 ID
+        session_uuid: 会话 UUID
+        tasks_count: 提交的任务数量
+        material_type: 材料类型
+    
+    Returns:
+        是否发送成功
+    """
+    try:
+        notifier = FeishuNotifier(get_gateway_url())
+        
+        # 构建 session_key
+        if chat_id:
+            session_key = f"feishu:group:{chat_id}"
+        else:
+            session_key = f"feishu:user:{sender_id}"
+        
+        # 构建回执卡片
+        card = _build_acknowledgment_card(
+            session_uuid=session_uuid,
+            tasks_count=tasks_count,
+            material_type=material_type
+        )
+        
+        # 发送
+        success = await notifier.send(session_key, card)
+        
+        if success:
+            logger.info(f"Sent acknowledgment for session {session_uuid}")
+        else:
+            logger.warning(f"Failed to send acknowledgment for session {session_uuid}")
+        
+        return success
+    
+    except Exception as e:
+        logger.error(f"Error sending acknowledgment: {e}")
+        return False
+
+
+def _build_acknowledgment_card(
+    session_uuid: str,
+    tasks_count: int,
+    material_type: str
+) -> Dict:
+    """
+    构建任务接收回执卡片
+    
+    Args:
+        session_uuid: 会话 UUID
+        tasks_count: 任务数量
+        material_type: 材料类型
+    
+    Returns:
+        飞书卡片格式字典
+    """
+    type_desc = {
+        'image': '图片',
+        'text': '文字描述',
+        'mixed': '图片和文字'
+    }
+    
+    card = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": "🎨 收到3D建模请求"
+                },
+                "template": "blue"
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": f"✅ 已提交 {tasks_count} 个供应商处理"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": f"📁 材料类型: {type_desc.get(material_type, '未知')}"
+                    }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": f"🆔 会话ID: {session_uuid[:16]}..."
+                    }
+                },
+                {"tag": "hr"},
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": "⏱️ 处理时间通常需要 1-3 分钟，完成后我会通知您~"
+                    }
+                }
+            ]
+        }
+    }
+    
+    return card
 
 
 def get_db_path() -> str:
