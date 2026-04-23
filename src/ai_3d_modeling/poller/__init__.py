@@ -50,14 +50,25 @@ class Poller:
         self.running = False
     
     def start(self):
-        """启动轮询"""
-        logger.info(f"Poller starting with interval={self.interval}s")
+        """启动轮询 (同步入口)"""
+        logger.info(f"Poller.start called, running={self.running}")
         self.running = True
         
-        asyncio.run(self._run())
+        # 检查是否已有事件循环
+        try:
+            loop = asyncio.get_running_loop()
+            logger.info(f"Found running loop, creating task")
+            # 已在事件循环中，使用 create_task
+            loop.create_task(self._run())
+            logger.info("Task created in running loop")
+        except RuntimeError:
+            # 没有运行中的事件循环，可以创建新的
+            logger.info("No running loop, using asyncio.run")
+            asyncio.run(self._run())
     
     async def _run(self):
         """异步运行轮询循环"""
+        logger.info(f"Poller _run started, running={self.running}")
         while self.running:
             try:
                 await self._poll_once()
@@ -65,6 +76,7 @@ class Poller:
                 logger.error(f"Poll error: {e}")
             
             await asyncio.sleep(self.interval)
+        logger.info("Poller _run finished")
     
     def stop(self):
         """停止轮询"""
@@ -297,7 +309,7 @@ async def run_poller(config: Dict = None):
         gateway_url=config.get('gateway_url', 'http://127.0.0.1:18789/webhook/notify')
     )
     
-    # 创建并启动轮询器
+    # 创建轮询器
     poller = Poller(
         db=db,
         storage=storage,
@@ -306,9 +318,14 @@ async def run_poller(config: Dict = None):
         api_key=config.get('api_key')
     )
     
+    # 标记为运行中
+    poller.running = True
+    
+    # 直接运行异步轮询循环
     try:
-        poller.start()
+        await poller._run()
     except KeyboardInterrupt:
+        logger.info('Poller 已停止')
         poller.stop()
 
 

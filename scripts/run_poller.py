@@ -17,6 +17,7 @@ scripts/run_poller.py - Poller 守护进程启动脚本
 """
 
 import argparse
+import asyncio
 import logging
 import os
 import sys
@@ -52,7 +53,7 @@ def parse_args():
         '--db-path',
         type=str,
         default=os.getenv('DB_PATH', './data/ai-3d-modeling.db'),
-        help=f'数据库路径，默认: ./data/ai-3d-modeling.db'
+        help='数据库路径，默认: ./data/ai-3d-modeling.db'
     )
     
     parser.add_argument(
@@ -115,16 +116,6 @@ def main():
     setup_logging(args.log_level)
     logger = logging.getLogger(__name__)
     
-    logger.info('=' * 50)
-    logger.info('AI-3D Modeling Poller 启动')
-    logger.info('=' * 50)
-    logger.info(f'轮询间隔: {args.interval}s')
-    logger.info(f'数据库: {args.db_path}')
-    logger.info(f'TOS Bucket: {args.tos_bucket}')
-    logger.info(f'Gateway: {args.gateway_url}')
-    logger.info(f'日志级别: {args.log_level}')
-    logger.info('=' * 50)
-    
     # 构建配置
     config = {
         'db_path': args.db_path,
@@ -135,8 +126,19 @@ def main():
         'api_key': args.ark_api_key,
     }
     
+    logger.info('=' * 50)
+    logger.info('AI-3D Modeling Poller 启动')
+    logger.info('=' * 50)
+    logger.info(f'轮询间隔: {args.interval}s')
+    logger.info(f'数据库: {args.db_path}')
+    logger.info(f'TOS Bucket: {args.tos_bucket}')
+    logger.info(f'Gateway: {args.gateway_url}')
+    logger.info(f'日志级别: {args.log_level}')
+    logger.info('=' * 50)
+    
     try:
-        run_poller(config)
+        # 直接调用 run_poller，它内部会处理 asyncio.run()
+        asyncio.run(run_poller(config))
     except KeyboardInterrupt:
         logger.info('Poller 已停止')
     except Exception as e:
