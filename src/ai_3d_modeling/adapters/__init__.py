@@ -29,7 +29,8 @@ class TemplateRequestBuilder:
         # 2. 准备变量
         variables = {
             'model': vendor_config.get('model', ''),
-            'content': json.dumps(content),
+            # content 保持为数组，由 _substitute 处理
+            'content': content,
             'text_content': material.get('text_content', ''),
             **{f'image_url_{i}': url 
                for i, url in enumerate(material.get('image_urls', []))},
@@ -37,7 +38,13 @@ class TemplateRequestBuilder:
         
         # 3. 递归替换模板中的变量
         request_template = vendor_config.get('request_template', {})
-        return self._substitute(request_template, variables)
+        result = self._substitute(request_template, variables)
+        
+        # 4. 如果 content 仍然是数组（未被替换），直接赋值
+        if isinstance(result, dict) and 'content' not in str(result):
+            result['content'] = content
+        
+        return result
     
     def _build_content(self, vendor_config: Dict, material: Dict) -> List[Dict]:
         """构建 content 数组"""

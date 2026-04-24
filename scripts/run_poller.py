@@ -28,6 +28,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from ai_3d_modeling.poller import run_poller
 
 
+def _load_env():
+    """从 config/.env 自动加载环境变量（优先级低于已存在的环境变量）"""
+    env_path = os.path.join(os.path.dirname(__file__), '..', 'config', '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    if k not in os.environ:
+                        os.environ[k] = v
+
+_load_env()
+
+
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
