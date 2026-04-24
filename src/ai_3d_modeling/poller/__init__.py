@@ -138,26 +138,33 @@ class Poller:
             logger.error(f"Query failed for {vendor_task_uuid}: {e}")
             return
         
-        # 5. 解析响应
+        # 6. 解析响应并提取错误信息
         parsed = adapter.parse_response(response)
-        
-        # 6. 更新状态
         status = parsed.get('status', 'unknown')
+
+        # 提取错误详情（API 返回 {"error": {"code": ..., "message": ...}}）
+        error_info = response.get('error', {})
+        error_code = error_info.get('code') if isinstance(error_info, dict) else None
+        error_message = error_info.get('message') if isinstance(error_info, dict) else None
+
+        # 更新数据库（包含错误详情）
         self.task_mgr.update_status(
             vendor_task_uuid,
             status,
-            api_response=json.dumps(response)
+            api_response=json.dumps(response),
+            error_code=error_code,
+            error_message=error_message
         )
-        
+
         logger.info(f"Task {vendor_task_uuid} status: {status}")
-        
+
         # 7. 处理完成状态
         if status == 'succeeded':
             file_url = parsed.get('file_url')
             await self._handle_success(task, file_url)
         elif status == 'failed':
-            error = parsed.get('error', 'Unknown error')
-            await self._handle_failure(task, error)
+            error_str = f"{error_code}: {error_message}" if error_code else (error_message or 'Unknown error')
+            await self._handle_failure(task, error_str)
         elif status == 'timeout':
             await self._handle_timeout(task)
     

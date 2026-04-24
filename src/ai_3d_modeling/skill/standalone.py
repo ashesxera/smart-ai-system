@@ -404,7 +404,7 @@ async def _submit_to_vendor(
         vendor_task_uuid=task_uuid,
         session_uuid=session_uuid,
         material_uuid=material_uuid,
-        vendor_id=vendor.get('id'),
+        vendor_id=vendor.get('key'),
         vendor_name=vendor.get('name'),
         model_name=vendor.get('model'),
         api_endpoint=vendor.get('endpoint'),
