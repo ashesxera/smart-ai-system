@@ -202,7 +202,9 @@ class Poller:
             result = await self.storage.upload_result(
                 vendor_task_uuid=vendor_task_uuid,
                 file_url=file_url,
-                session_uuid=session_uuid
+                session_uuid=session_uuid,
+                vendor_name=task.get('vendor_name'),
+                model_name=task.get('model_name')
             )
             
             # 2. 更新任务记录

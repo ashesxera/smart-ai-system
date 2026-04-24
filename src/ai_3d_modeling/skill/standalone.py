@@ -33,6 +33,7 @@ import json
 import logging
 import os
 import tempfile
+import urllib.request
 from typing import Dict, List, Optional, Any
 
 from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
@@ -97,12 +98,11 @@ async def _upload_material_images_to_tos(
                 data = base64.b64decode(b64_data)
             elif image_url.startswith('http'):
                 # HTTP URL，需要下载
-                import tempfile, urllib.request
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image_url)[1]) as f:
+                suffix = os.path.splitext(image_url)[1] or '.jpg'
+                ext = suffix.lstrip('.') or 'jpg'
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
                     urllib.request.urlretrieve(image_url, f.name)
                     data = open(f.name, 'rb').read()
-                    ext = os.path.splitext(image_url)[1].lstrip('.') or 'jpg'
-                ext = ext or 'jpg'
             else:
                 continue
             
