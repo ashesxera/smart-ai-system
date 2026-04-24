@@ -147,16 +147,76 @@ class ResultSummarizer:
 
 
 class FeishuNotifier:
-    """飞书通知器"""
-    
-    def __init__(self, gateway_url: str):
+    """飞书通知器（通过 Feishu API 直接发送）"""
+
+    FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
+
+    def __init__(self, gateway_url: str = None,
+                 feishu_app_id: str = None,
+                 feishu_app_secret: str = None):
         """
         初始化通知器
-        
+
         Args:
-            gateway_url: Gateway Webhook URL
+            gateway_url: Gateway Webhook URL（已废弃，保留兼容）
+            feishu_app_id: Feishu App ID
+            feishu_app_secret: Feishu App Secret
         """
-        self.gateway_url = gateway_url
+        import os
+        self.gateway_url = gateway_url or os.getenv('FEISHU_APP_ID', '')
+        self.feishu_app_id = feishu_app_id or os.getenv('FEISHU_APP_ID', '')
+        self.feishu_app_secret = feishu_app_secret or os.getenv('FEISHU_APP_SECRET', '')
+        self._tenant_token = None
+        self._token_expires_at = 0
+
+    def _get_tenant_token(self) -> str:
+        """获取 tenant access token（带缓存）"""
+        import time, json
+        # 如果 token 还未过期（提前 60s 缓冲），直接返回
+        if self._tenant_token and time.time() < self._token_expires_at - 60:
+            return self._tenant_token
+
+        resp = httpx.post(
+            f"{self.FEISHU_API_BASE}/auth/v3/tenant_access_token/internal",
+            json={
+                "app_id": self.feishu_app_id,
+                "app_secret": self.feishu_app_secret
+            },
+            timeout=10
+        )
+        data = resp.json()
+        if data.get('code') != 0:
+            raise RuntimeError(f"Feishu auth failed: {data.get('msg')}")
+        self._tenant_token = data['tenant_access_token']
+        self._token_expires_at = time.time() + data.get('expire', 7200)
+        return self._tenant_token
+
+    def _send_via_feishu_api(self, open_id: str, card: Dict) -> bool:
+        """通过 Feishu API 发送交互卡片给用户"""
+        import json
+        token = self._get_tenant_token()
+        resp = httpx.post(
+            f"{self.FEISHU_API_BASE}/im/v1/messages?receive_id_type=open_id",
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'receive_id': open_id,
+                'msg_type': 'interactive',
+                'content': json.dumps(card)
+            },
+            timeout=15
+        )
+        result = resp.json()
+        return result.get('code') == 0
+
+    def _parse_open_id(self, session_key: str) -> str:
+        """从 session_key 解析 open_id"""
+        # 格式: feishu:user:{open_id} 或 feishu:group:{chat_id}
+        if ':' in session_key:
+            return session_key.split(':', 2)[-1]
+        return session_key
     
     def build_card(self, summary: Dict) -> Dict:
         """
@@ -244,28 +304,21 @@ class FeishuNotifier:
     
     async def send(self, session_key: str, card: Dict) -> bool:
         """
-        发送卡片消息
-        
+        发送卡片消息（通过 Feishu API）
+
         Args:
             session_key: 会话标识
             card: 卡片内容
-        
+
         Returns:
             是否发送成功
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.gateway_url,
-                    json={
-                        "event": "send_card",
-                        "session_key": session_key,
-                        "card": card
-                    },
-                    timeout=10
-                )
-                return response.status_code == 200
-        except Exception:
+            open_id = self._parse_open_id(session_key)
+            return self._send_via_feishu_api(open_id, card)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Feishu send failed: {e}")
             return False
     
     async def send_summary(self, session_key: str, summary: Dict) -> bool:
