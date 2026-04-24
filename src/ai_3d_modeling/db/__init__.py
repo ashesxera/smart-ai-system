@@ -327,6 +327,13 @@ class MaterialManager:
             WHERE material_uuid = ?
         ''', (status, material_uuid))
 
+    def update_tos_path(self, material_uuid: str, tos_path: str):
+        """更新材料的 TOS 路径"""
+        self.db.execute('''
+            UPDATE materials SET tos_path = ?, updated_at = strftime('%s', 'now')
+            WHERE material_uuid = ?
+        ''', (tos_path, material_uuid))
+
 
 class VendorTaskManager:
     """供应商任务管理"""

@@ -28,17 +28,108 @@ AI 在读取 SKILL.md 后，会执行类似这样的操作：
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import tempfile
 from typing import Dict, List, Optional, Any
 
 from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
 from ai_3d_modeling.adapters import AdapterFactory
 from ai_3d_modeling.utils import generate_uuid
 from ai_3d_modeling.notifier import FeishuNotifier
+from ai_3d_modeling.storage import StorageManager
 
 logger = logging.getLogger(__name__)
+
+
+def _load_env():
+    """从 config/.env 加载环境变量"""
+    env_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    if k not in os.environ:
+                        os.environ[k] = v
+
+
+async def _upload_material_images_to_tos(
+    session_uuid: str,
+    material_uuid: str,
+    images: List[str],
+    material_mgr: MaterialManager
+) -> Optional[str]:
+    """
+    将素材图片上传到 TOS 的 sessions/{uuid}/materials/ 目录
+    
+    Args:
+        session_uuid: 会话 UUID
+        material_uuid: 材料 UUID（用于生成文件名）
+        images: 图片列表（base64 data URL 或 http URL）
+        material_mgr: MaterialManager 实例
+    
+    Returns:
+        tos_path 字符串或 None
+    """
+    if not images:
+        return None
+    
+    _load_env()
+    
+    storage = StorageManager(
+        bucket=os.getenv('TOS_BUCKET', '4-ark-claw'),
+        base_path=os.getenv('TOS_BASE_PATH', 'ai-3d-system')
+    )
+    
+    tos_paths = []
+    for i, image_url in enumerate(images):
+        try:
+            # 解码 base64 data URL 或下载 http URL
+            if image_url.startswith('data:'):
+                # base64 data URL: data:image/jpeg;base64,/9j/4AAQ...
+                header, b64_data = image_url.split(',', 1)
+                mime_type = header.split(';')[0].replace('data:', '')
+                ext = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp'}.get(mime_type, 'jpg')
+                data = base64.b64decode(b64_data)
+            elif image_url.startswith('http'):
+                # HTTP URL，需要下载
+                import tempfile, urllib.request
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(image_url)[1]) as f:
+                    urllib.request.urlretrieve(image_url, f.name)
+                    data = open(f.name, 'rb').read()
+                    ext = os.path.splitext(image_url)[1].lstrip('.') or 'jpg'
+                ext = ext or 'jpg'
+            else:
+                continue
+            
+            # 写入临时文件
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as f:
+                f.write(data)
+                tmp_path = f.name
+            
+            # 上传到 TOS: sessions/{session_uuid}/materials/{material_uuid}_{index}.{ext}
+            tos_sub_path = f"sessions/{session_uuid}/materials/{material_uuid}_{i}.{ext}"
+            storage.upload(tmp_path, tos_sub_path)
+            tos_paths.append(tos_sub_path)
+            
+            # 清理临时文件
+            os.unlink(tmp_path)
+            logger.info(f"Uploaded image {i} to TOS: {tos_sub_path}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to upload image {i} to TOS: {e}")
+            continue
+    
+    if tos_paths:
+        tos_path_str = ','.join(tos_paths)
+        material_mgr.update_tos_path(material_uuid, tos_path_str)
+        return tos_path_str
+    
+    return None
 
 
 def get_gateway_url() -> str:
@@ -135,6 +226,14 @@ async def process_modeling_request(
             text_content=user_message if user_message else None,
             image_urls=images if images else None
         )
+        
+        # 3.1 上传素材图片到 TOS（仅 base64 data URL 需要上传，http URL 直接引用）
+        if images:
+            tos_path = await _upload_material_images_to_tos(
+                session_uuid, material_uuid, images, material_mgr
+            )
+            if tos_path:
+                logger.info(f"Uploaded material images to TOS: {tos_path}")
         
         # 4. 更新会话阶段
         session_mgr.update_phase(session_uuid, 'processing')
