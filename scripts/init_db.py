@@ -58,7 +58,6 @@ def insert_vendor_configs(db: Database):
                 "content": "${content}"
             },
             "content_template": [
-                {"type": "text", "text": "${text_content}"},
                 {"type": "image_url", "image_url": {"url": "${image_url_0}"}}
             ],
             "response_parser": {
@@ -83,7 +82,7 @@ def insert_vendor_configs(db: Database):
             "method": "POST",
             "auth_type": "bearer",
             "timeout_minutes": 30,
-            "priority": 20,
+            "priority": 10,
             "is_active": True,
             "supported_formats": ["glb", "obj", "fbx"],
             "max_images": 4,
@@ -118,7 +117,7 @@ def insert_vendor_configs(db: Database):
             "method": "POST",
             "auth_type": "bearer",
             "timeout_minutes": 30,
-            "priority": 15,
+            "priority": 10,
             "is_active": True,
             "supported_formats": ["obj", "glb", "stl", "fbx", "usdz"],
             "max_images": 4,
@@ -128,7 +127,6 @@ def insert_vendor_configs(db: Database):
                 "content": "${content}"
             },
             "content_template": [
-                {"type": "text", "text": "${text_content}"},
                 {"type": "image_url", "image_url": {"url": "${image_url_0}"}}
             ],
             "response_parser": {
