@@ -41,7 +41,7 @@ def insert_vendor_configs(db: Database):
         {
             "key": "vendor_ark_seed3d",
             "name": "豆包Seed3D",
-            "model": "doubao-seed3d",
+            "model": "doubao-seed3d-2-0-260328",
             "adapter": "ark_generic",
             "endpoint": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
             "query_endpoint": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${vendor_task_id}",
@@ -58,10 +58,11 @@ def insert_vendor_configs(db: Database):
                 "content": "${content}"
             },
             "content_template": [
+                {"type": "text", "text": "${text_content}"},
                 {"type": "image_url", "image_url": {"url": "${image_url_0}"}}
             ],
             "response_parser": {
-                "task_id": "$.id",
+                "vendor_task_id": "$.id",
                 "status": "$.status",
                 "file_url": "$.content.file_url"
             },
@@ -74,28 +75,29 @@ def insert_vendor_configs(db: Database):
         },
         {
             "key": "vendor_ark_yingmou",
-            "name": "影眸 Hyper3D",
-            "model": "yingmou",
+            "name": "影眸Hyper3D",
+            "model": "hyper3d-gen2-260112",
             "adapter": "ark_generic",
             "endpoint": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
             "query_endpoint": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${vendor_task_id}",
             "method": "POST",
             "auth_type": "bearer",
             "timeout_minutes": 30,
-            "priority": 8,
+            "priority": 20,
             "is_active": True,
-            "supported_formats": ["glb", "obj", "usdz", "fbx", "stl"],
-            "max_images": 5,
-            "max_image_size_mb": 30,
+            "supported_formats": ["glb", "obj", "fbx"],
+            "max_images": 4,
+            "max_image_size_mb": 10,
             "request_template": {
                 "model": "${model}",
                 "content": "${content}"
             },
             "content_template": [
+                {"type": "text", "text": "${text_content}"},
                 {"type": "image_url", "image_url": {"url": "${image_url_0}"}}
             ],
             "response_parser": {
-                "task_id": "$.id",
+                "vendor_task_id": "$.id",
                 "status": "$.status",
                 "file_url": "$.content.file_url"
             },
@@ -108,15 +110,15 @@ def insert_vendor_configs(db: Database):
         },
         {
             "key": "vendor_ark_shumei",
-            "name": "数美 Hitem3D",
-            "model": "shumei",
+            "name": "数美Hitem3D",
+            "model": "hitem3d-2-0-251223",
             "adapter": "ark_generic",
             "endpoint": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
             "query_endpoint": "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${vendor_task_id}",
             "method": "POST",
             "auth_type": "bearer",
             "timeout_minutes": 30,
-            "priority": 6,
+            "priority": 15,
             "is_active": True,
             "supported_formats": ["obj", "glb", "stl", "fbx", "usdz"],
             "max_images": 4,
@@ -126,10 +128,11 @@ def insert_vendor_configs(db: Database):
                 "content": "${content}"
             },
             "content_template": [
+                {"type": "text", "text": "${text_content}"},
                 {"type": "image_url", "image_url": {"url": "${image_url_0}"}}
             ],
             "response_parser": {
-                "task_id": "$.id",
+                "vendor_task_id": "$.id",
                 "status": "$.status",
                 "file_url": "$.content.file_url"
             },
@@ -143,19 +146,19 @@ def insert_vendor_configs(db: Database):
     ]
     
     for vendor in vendors:
-        key = vendor.pop("key")
-        name = vendor.pop("name")
-        
+        key = vendor["key"]
+        name = vendor["name"]
+
         # 检查是否已存在
         existing = db.execute(
             "SELECT id FROM settings WHERE key = ? AND category = 'vendor'",
             (key,)
         )
-        
+
         if existing:
             print(f"  - {name}: already exists, skipping")
             continue
-        
+
         db.execute(
             """INSERT INTO settings (key, value, value_type, description, category)
                VALUES (?, ?, 'json', ?, 'vendor')""",
