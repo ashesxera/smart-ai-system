@@ -56,7 +56,7 @@ from typing import Dict, List, Optional, Tuple
 from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
 from ai_3d_modeling.adapters import AdapterFactory
 from ai_3d_modeling.utils import generate_uuid, get_timestamp
-from ai_3d_modeling.notifier import FeishuNotifier
+from ai_3d_modeling.notifier import Notifier
 
 # =============================================================================
 # 【已弃用】此类和相关代码不再使用，请使用 skill/standalone.py
@@ -79,7 +79,7 @@ HELP_KEYWORDS = ['帮助', 'help', '怎么用', '使用说明', 'help me']
 class SkillHandler:
     """Skill 事件处理器"""
     
-    def __init__(self, db: Database, notifier: FeishuNotifier, feishu_credentials: Dict = None):
+    def __init__(self, db: Database, notifier: Notifier, feishu_credentials: Dict = None):
         """
         初始化处理器
         
@@ -629,7 +629,7 @@ async def handle_event(event: Dict, config: Dict = None) -> Dict:
     
     # 初始化组件
     db = Database(db_path)
-    notifier = FeishuNotifier(gateway_url)
+    notifier = Notifier(gateway_url)
     
     handler = SkillHandler(db, notifier, feishu_credentials)
     return await handler.handle_event(event)

@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
 from ai_3d_modeling.poller import Poller
 from ai_3d_modeling.storage import StorageManager
-from ai_3d_modeling.notifier import FeishuNotifier
+from ai_3d_modeling.notifier import Notifier
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def mock_storage():
 @pytest.fixture
 def mock_notifier():
     """创建 Mock 通知器"""
-    notifier = MagicMock(spec=FeishuNotifier)
+    notifier = MagicMock(spec=Notifier)
     notifier.send_summary = AsyncMock(return_value=True)
     return notifier
 
@@ -247,7 +247,7 @@ class TestPollerInterval:
             db.initialize()
             
             storage = MagicMock(spec=StorageManager)
-            notifier = MagicMock(spec=FeishuNotifier)
+            notifier = MagicMock(spec=Notifier)
             
             poller = Poller(db, storage, notifier, interval=60)
             

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from ai_3d_modeling.db import Database, SessionManager, VendorTaskManager
 from ai_3d_modeling.adapters import AdapterFactory
 from ai_3d_modeling.storage import StorageManager
-from ai_3d_modeling.notifier import ResultSummarizer, FeishuNotifier
+from ai_3d_modeling.notifier import ResultSummarizer, Notifier
 from ai_3d_modeling.utils import get_timestamp
 
 
@@ -26,7 +26,7 @@ class Poller:
     def __init__(self, 
                  db: Database,
                  storage: StorageManager,
-                 notifier: FeishuNotifier,
+                 notifier: Notifier,
                  interval: int = 60,
                  api_key: str = None):
         """
@@ -314,8 +314,9 @@ async def run_poller(config: Dict = None):
         bucket=config.get('tos_bucket', '4-ark-claw'),
         base_path=config.get('tos_base_path', 'ai-3d-system')
     )
-    notifier = FeishuNotifier(
-        gateway_url=config.get('gateway_url', 'http://127.0.0.1:18789/webhook/notify')
+    notifier = Notifier(
+        gateway_host=config.get('gateway_url', 'http://127.0.0.1:18789'),
+        gateway_token=config.get('gateway_token', ''),
     )
     
     # 创建轮询器

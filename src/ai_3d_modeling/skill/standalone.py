@@ -39,7 +39,7 @@ from typing import Dict, List, Optional, Any
 from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
 from ai_3d_modeling.adapters import AdapterFactory
 from ai_3d_modeling.utils import generate_uuid
-from ai_3d_modeling.notifier import FeishuNotifier
+from ai_3d_modeling.notifier import Notifier
 from ai_3d_modeling.storage import StorageManager
 
 logger = logging.getLogger(__name__)
@@ -561,7 +561,7 @@ async def _send_acknowledgment(
         是否发送成功
     """
     try:
-        notifier = FeishuNotifier(get_gateway_url())
+        notifier = Notifier(gateway_host=get_gateway_url())
         
         # 构建 session_key
         if chat_id:
@@ -577,7 +577,7 @@ async def _send_acknowledgment(
         )
         
         # 发送
-        success = await notifier.send(session_key, card)
+        success = await notifier.send_card(session_key, card)
         
         if success:
             logger.info(f"Sent acknowledgment for session {session_uuid}")

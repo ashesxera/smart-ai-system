@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 from ai_3d_modeling.db import Database, SessionManager, MaterialManager, VendorTaskManager
-from ai_3d_modeling.notifier import ResultSummarizer, FeishuNotifier
+from ai_3d_modeling.notifier import ResultSummarizer, Notifier
 
 
 @pytest.fixture
@@ -37,8 +37,8 @@ def summarizer(db):
 
 @pytest.fixture
 def notifier():
-    """创建 FeishuNotifier"""
-    return FeishuNotifier(gateway_url='http://127.0.0.1:18789/webhook/notify')
+    """创建 Notifier"""
+    return Notifier(gateway_url='http://127.0.0.1:18789/webhook/notify')
 
 
 class TestResultSummarizer:
@@ -192,8 +192,8 @@ class TestResultSummarizer:
         assert preview['count'] == 1
 
 
-class TestFeishuNotifier:
-    """FeishuNotifier 测试"""
+class TestNotifier:
+    """Notifier 测试"""
     
     def test_build_feishu_card(self, notifier):
         """TC-NOTIFY-001: 构建飞书卡片"""

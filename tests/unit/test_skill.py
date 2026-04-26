@@ -33,8 +33,8 @@ def db():
 @pytest.fixture
 def skill_handler(db):
     """创建 SkillHandler"""
-    from ai_3d_modeling.notifier import FeishuNotifier
-    notifier = FeishuNotifier(gateway_url='http://127.0.0.1:18789/webhook/notify')
+    from ai_3d_modeling.notifier import Notifier
+    notifier = Notifier(gateway_host='http://127.0.0.1:18789')
     return SkillHandler(db, notifier)
 
 
