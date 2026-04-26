@@ -22,8 +22,12 @@ import logging
 import os
 import sys
 
+# 项目根目录
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, 'data', 'ai-3d-modeling.db')
+
 # 添加项目路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
 from ai_3d_modeling.poller import run_poller
 
@@ -67,8 +71,8 @@ def parse_args():
     parser.add_argument(
         '--db-path',
         type=str,
-        default=os.getenv('DB_PATH', './data/ai-3d-modeling.db'),
-        help='数据库路径，默认: ./data/ai-3d-modeling.db'
+        default=os.getenv('DB_PATH', DEFAULT_DB_PATH),
+        help=f'数据库路径，默认: {DEFAULT_DB_PATH}'
     )
     
     parser.add_argument(

@@ -2,22 +2,25 @@
 """
 数据库初始化脚本
 """
-import sys
 import os
+import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# 项目根目录（脚本所在目录的父目录）
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, 'data', 'ai-3d-modeling.db')
+
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
 from ai_3d_modeling.db import Database
 from ai_3d_modeling.utils import generate_uuid, get_timestamp
 import json
 
 
-def init_database(db_path: str = './data/ai-3d-modeling.db'):
+def init_database(db_path: str = DEFAULT_DB_PATH):
     """初始化数据库"""
-    print(f"Initializing database: {db_path}")
-    
-    # 确保目录存在
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    # 确保目录存在（兼容传入相对路径的情况）
+    db_dir = os.path.dirname(os.path.abspath(db_path))
+    os.makedirs(db_dir, exist_ok=True)
     
     # 创建数据库
     db = Database(db_path)
