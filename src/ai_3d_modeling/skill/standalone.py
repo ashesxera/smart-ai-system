@@ -46,16 +46,72 @@ logger = logging.getLogger(__name__)
 
 
 def _load_env():
-    """从 config/.env 加载环境变量"""
-    env_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', '.env')
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    k, v = line.split('=', 1)
-                    if k not in os.environ:
-                        os.environ[k] = v
+    """从项目根目录 .env 加载环境变量"""
+    # 尝试多个可能的 .env 路径
+    candidates = [
+        os.path.join(os.path.dirname(__file__), '..', '..', '.env'),
+        os.path.join(os.path.dirname(__file__), '..', '..', 'config', '.env'),
+        os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env'),
+    ]
+    for env_path in candidates:
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        if k not in os.environ:
+                            os.environ[k] = v
+            return
+
+
+def _get_feishu_token() -> Optional[str]:
+    """获取飞书 tenant access token"""
+    import httpx
+    app_id = os.getenv('FEISHU_APP_ID', '')
+    app_secret = os.getenv('FEISHU_APP_SECRET', '')
+    if not app_id or not app_secret:
+        return None
+    try:
+        url = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal'
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(url, json={'app_id': app_id, 'app_secret': app_secret})
+            result = resp.json()
+            if result.get('code') == 0:
+                return result.get('tenant_access_token')
+    except Exception as e:
+        logger.warning(f"Failed to get feishu token: {e}")
+    return None
+
+
+def _download_feishu_image(image_key: str) -> Optional[bytes]:
+    """
+    从飞书下载图片二进制数据
+
+    Args:
+        image_key: 飞书图片 key，格式如 img_v3_xxx
+
+    Returns:
+        图片二进制数据，或 None
+    """
+    import httpx
+    token = _get_feishu_token()
+    if not token:
+        logger.warning("No feishu token, cannot download image")
+        return None
+    try:
+        url = f'https://open.feishu.cn/open-apis/im/v1/images/{image_key}'
+        headers = {'Authorization': f'Bearer {token}'}
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code == 200:
+                logger.info(f"Downloaded feishu image {image_key}, size: {len(resp.content)} bytes")
+                return resp.content
+            else:
+                logger.warning(f"Failed to download feishu image {image_key}: HTTP {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Exception downloading feishu image {image_key}: {e}")
+    return None
 
 
 async def _upload_material_images_to_tos(
@@ -100,9 +156,25 @@ async def _upload_material_images_to_tos(
                 # HTTP URL，需要下载
                 suffix = os.path.splitext(image_url)[1] or '.jpg'
                 ext = suffix.lstrip('.') or 'jpg'
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
-                    urllib.request.urlretrieve(image_url, f.name)
-                    data = open(f.name, 'rb').read()
+                tmp_download = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+                        urllib.request.urlretrieve(image_url, f.name)
+                        tmp_download = f.name
+                    with open(tmp_download, 'rb') as f:
+                        data = f.read()
+                finally:
+                    if tmp_download and os.path.exists(tmp_download):
+                        os.unlink(tmp_download)
+            elif image_url.startswith('feishu://image/'):
+                # 飞书图片 key: feishu://image/{img_key}?msg_id=xxx
+                # 需要通过飞书 API 下载
+                feishu_key = image_url.split('/')[-1].split('?')[0]
+                data = _download_feishu_image(feishu_key)
+                if data is None:
+                    logger.warning(f"Failed to download feishu image: {feishu_key}")
+                    continue
+                ext = 'jpg'  # 飞书图片默认为 jpg
             else:
                 continue
             
@@ -726,3 +798,189 @@ async def handle_user_message(
         'message': '我不太理解您的意思，请发送"帮助"查看使用方法。',
         'phase': 'unknown'
     }
+
+
+def extract_images_from_feishu_message(message_type: str, content_str: str) -> List[str]:
+    """
+    从飞书消息中提取图片 URL 或 feishu key
+
+    支持的消息类型：
+    - image: 飞书图片消息，content 为 JSON {"image_key": "img_xxx"}
+    - text: 文本消息，可能包含 HTTP 图片 URL
+    - mixed: 合并转发消息，包含多个子消息
+
+    Args:
+        message_type: 消息类型 (image/text/mixed/post等)
+        content_str: 消息 content 字段的原始 JSON 字符串
+
+    Returns:
+        图片 URL 或 feishu key 列表
+    """
+    import re
+    image_urls = []
+
+    try:
+        content = json.loads(content_str) if content_str else {}
+    except (json.JSONDecodeError, TypeError):
+        content = {}
+        if content_str:
+            # content 不是 JSON，尝试当作纯文本处理（可能包含 URL）
+            content = {'text': content_str}
+
+    if message_type == 'image':
+        image_key = content.get('image_key', '')
+        if image_key:
+            # 返回 feishu://image/{key} 格式，让上传函数通过飞书 API 下载
+            image_urls.append(f'feishu://image/{image_key}')
+
+    elif message_type == 'mixed':
+        # 合并转发消息，遍历子消息
+        items = content.get('items', [])
+        for item in items:
+            item_type = item.get('message_type', '')
+            item_content_str = item.get('content', '{}')
+            try:
+                item_content = json.loads(item_content_str)
+            except (json.JSONDecodeError, TypeError):
+                item_content = {}
+
+            if item_type == 'image':
+                key = item_content.get('image_key', '')
+                if key:
+                    image_urls.append(f'feishu://image/{key}')
+            elif item_type == 'post':
+                # 富文本消息，提取图片
+                images = _extract_images_from_post_content(item_content)
+                image_urls.extend(images)
+
+    elif message_type == 'post':
+        # 富文本消息
+        images = _extract_images_from_post_content(content)
+        image_urls.extend(images)
+
+    elif message_type == 'text':
+        # 文本消息，提取 HTTP URL
+        text = content.get('text', '')
+        url_pattern = r'https?://[^\s"<>]+(?:\.(?:jpg|jpeg|png|gif|webp))(?:\?[^\s"<>]*)?'
+        urls = re.findall(url_pattern, text, re.IGNORECASE)
+        image_urls.extend(urls)
+
+    return image_urls
+
+
+def _extract_images_from_post_content(post_content: Dict) -> List[str]:
+    """从飞书富文本消息 (post) 中提取图片"""
+    import re
+    image_urls = []
+    url_pattern = r'https?://[^\s"<>]+(?:\.(?:jpg|jpeg|png|gif|webp))(?:\?[^\s"<>]*)?'
+
+    def scan(obj):
+        if isinstance(obj, str):
+            urls = re.findall(url_pattern, obj, re.IGNORECASE)
+            image_urls.extend(urls)
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                scan(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                scan(item)
+
+    scan(post_content)
+    return image_urls
+
+
+async def process_feishu_event(event: Dict) -> Dict[str, Any]:
+    """
+    处理飞书事件的便捷封装函数
+
+    此函数从飞书事件中自动提取 text、images、sender_id、chat_id、message_id，
+    然后调用 handle_user_message 处理。
+
+    Args:
+        event: 飞书事件字典，格式：
+            {
+                "event": {
+                    "sender": {"sender_id": {"open_id": "ou_xxx"}},
+                    "message": {
+                        "message_id": "om_xxx",
+                        "message_type": "image/text/mixed/post",
+                        "content": "{\"text\": \"...\"}" 或 "{\"image_key\": \"img_xxx\"}",
+                        "chat_id": "oc_xxx"
+                    },
+                    "chat_id": "oc_xxx"  // 群聊时有
+                }
+            }
+
+    Returns:
+        处理结果（透传 handle_user_message 的返回值）
+    """
+    try:
+        msg = event.get('event', {}).get('message', {})
+        sender = event.get('event', {}).get('sender', {})
+        sender_id = sender.get('sender_id', {}).get('open_id', '')
+        message_id = msg.get('message_id', '')
+        chat_id = msg.get('chat_id', '') or event.get('event', {}).get('chat_id', '')
+        message_type = msg.get('message_type', 'text')
+        content_str = msg.get('content', '{}')
+
+        # 解析消息内容
+        try:
+            content = json.loads(content_str)
+        except (json.JSONDecodeError, TypeError):
+            content = {}
+
+        # 提取文本
+        if message_type == 'text':
+            text = content.get('text', '')
+        elif message_type == 'post':
+            text = _extract_text_from_post(content)
+        else:
+            text = ''
+
+        # 提取图片
+        images = extract_images_from_feishu_message(message_type, content_str)
+
+        return await handle_user_message(
+            message_text=text,
+            sender_id=sender_id,
+            sender_name='',
+            chat_id=chat_id,
+            message_id=message_id,
+            images=images
+        )
+    except Exception as e:
+        logger.error(f"Error processing feishu event: {e}")
+        return {
+            'success': False,
+            'message': f'处理失败: {str(e)}',
+            'phase': 'error'
+        }
+
+
+def _extract_text_from_post(post_content: Dict) -> str:
+    """从飞书富文本消息 (post) 中提取纯文本"""
+    def extract(obj):
+        if isinstance(obj, str):
+            return obj
+        elif isinstance(obj, dict):
+            if obj.get('tag') == 'text':
+                return obj.get('content', '')
+            result = ''
+            for v in obj.values():
+                result += extract(v) + ' '
+            return result
+        elif isinstance(obj, list):
+            return ' '.join(extract(item) for item in obj)
+        return ''
+
+    text = extract(post_content).strip()
+    # 去重并重新组合（飞书 post 富文本可能有重复段落）
+    lines = []
+    seen = set()
+    for line in text.split('\n'):
+        line = line.strip()
+        if line and line not in seen:
+            seen.add(line)
+            lines.append(line)
+    return '\n'.join(lines)
+
