@@ -299,7 +299,8 @@ class Poller:
 
             if local_result_path:
                 # 上传 mock GLB 到 TOS
-                result_filename = f"{task.get('vendor_name', vendor_task_uuid)}.glb"
+                vendor_slug = self.storage.transliterate_path(task.get('vendor_name', vendor_task_uuid))
+                result_filename = f"{vendor_slug}.glb"
                 tos_sub_path = self.storage.build_tos_path(
                     session_uuid,
                     f"results/{result_filename}"
