@@ -53,7 +53,31 @@ AI 解析意图，直接调用 skill/standalone.py
 
 ## 核心接口
 
-### handle_user_message (推荐)
+### process_feishu_event (推荐用于飞书事件)
+
+直接处理飞书事件字典，自动提取文本、图片、发送者 ID：
+
+```python
+from ai_3d_modeling.skill.standalone import process_feishu_event
+
+result = await process_feishh_event(event)
+```
+
+event 格式：飞书事件字典（OpenClaw 注入的消息事件）
+自动识别 image/text/mixed/post 等消息类型。
+
+### extract_images_from_feishu_message
+
+从飞书消息 content 中提取图片 URL 或 feishu key：
+
+```python
+from ai_3d_modeling.skill.standalone import extract_images_from_feishu_message
+
+urls = extract_images_from_feishu_message(message_type, content_str)
+# 返回: ['feishu://image/img_xxx', 'https://example.com/photo.jpg']
+```
+
+### handle_user_message (通用入口)
 
 处理用户消息的便捷入口函数，AI 直接调用：
 
