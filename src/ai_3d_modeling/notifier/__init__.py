@@ -132,7 +132,7 @@ class ResultSummarizer:
 
     def _extract_format(self, task: Dict) -> Optional[str]:
         """从任务中提取文件格式"""
-        file_url = task.get('result_file_url', '')
+        file_url = task.get('result_file_url') or ''
         for ext in ['.glb', '.obj', '.fbx', '.stl', '.usdz']:
             if ext in file_url:
                 return ext.lstrip('.')

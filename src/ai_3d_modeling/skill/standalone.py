@@ -215,7 +215,7 @@ def get_gateway_url() -> str:
     Returns:
         Gateway URL 字符串
     """
-    return os.getenv('GATEWAY_URL', 'http://127.0.0.1:18789/webhook/notify')
+    return os.getenv('GATEWAY_HOST', 'http://127.0.0.1:18789')
 
 
 # ============================================================================
