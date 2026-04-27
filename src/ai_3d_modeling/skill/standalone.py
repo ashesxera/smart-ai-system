@@ -138,8 +138,9 @@ async def _upload_material_images_to_tos(
     _load_env()
     
     storage = StorageManager(
-        bucket=os.getenv('TOS_BUCKET', '4-ark-claw'),
-        base_path=os.getenv('TOS_BASE_PATH', 'ai-3d-system')
+        bucket=os.getenv('TOS_BUCKET', 'arkclaw-tos-2123782374-cn-beijing'),
+        base_path=os.getenv('TOS_BASE_PATH', 'ai-3d-system'),
+        endpoint=os.getenv('TOS_ENDPOINT', 'tos-cn-beijing.volces.com'),
     )
     
     tos_paths = []

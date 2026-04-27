@@ -1,18 +1,23 @@
 """
 AI-3D 建模系统 - 存储模块
 
-TOS 文件存储管理（本地 mount 方式）
+TOS 文件存储管理（ve-tos-python-sdk 实现）
 
-TOS bucket 直接挂载为本地文件系统，文件操作转化为本地读写，
-无需 HTTP API 认证。
+使用 Volcengine 官方 TOS SDK 直接操作对象存储。
+文档: https://github.com/volcengine/ve-tos-python-sdk
 """
 
+import io
 import os
 import shutil
 import tempfile
 from typing import Optional
 
-from ai_3d_modeling.utils import build_tos_path, sanitize_path
+import tos
+from tos.exceptions import TosServerError
+from tos import HttpMethodType
+
+from ai_3d_modeling.utils import build_tos_path
 
 
 def _to_pinyin_slug(name: str) -> str:
@@ -26,7 +31,6 @@ def _to_pinyin_slug(name: str) -> str:
         import unidecode
         return unidecode.unidecode(name).replace(' ', '-')
     except ImportError:
-        # 降级: 将非 ASCII 字符替换为 x
         result = []
         for c in name:
             if ord(c) > 127:
@@ -37,49 +41,41 @@ def _to_pinyin_slug(name: str) -> str:
 
 
 class StorageManager:
-    """TOS 存储管理器（本地 mount 实现）"""
+    """
+    TOS 存储管理器（ve-tos-python-sdk 实现）
 
-    # TOS bucket 本地挂载路径
-    MOUNT_BASE = '/root/.openclaw/workspace/4-ark-claw'
+    Args:
+        bucket: TOS 存储桶名称，例 arkclaw-tos-2123782374-cn-beijing
+        base_path: 基础路径前缀，例 ai-3d-system
+        endpoint: TOS 访问端点，默认 tos-cn-beijing.volces.com
+        region: TOS 区域，默认 cn-beijing
+    """
 
-    def __init__(self, bucket: str, base_path: str, endpoint: str = None):
-        """
-        初始化存储管理器
-
-        Args:
-            bucket: TOS 存储桶名称
-            base_path: 基础路径前缀
-            endpoint: TOS 公网访问地址（可选，用于生成分享链接）
-        """
+    def __init__(self, bucket: str, base_path: str,
+                 endpoint: str = 'tos-cn-beijing.volces.com',
+                 region: str = 'cn-beijing'):
         self.bucket = bucket
         self.base_path = base_path
-        self.public_base = endpoint or os.environ.get(
-            'TOS_PUBLIC_URL',
-            f'https://{bucket}.tos-cn-beijing.volces.com'
-        ).rstrip('/')
+        self.endpoint = endpoint
+        self.region = region
 
-        # TOS 凭证（用于生成 presign URL）
+        # 从环境变量读取凭证
         self.access_key = os.environ.get('TOS_ACCESS_KEY', '')
         self.secret_key = os.environ.get('TOS_SECRET_ACCESS_KEY', '')
 
-    def build_tos_path(self, session_uuid: str, sub_path: str) -> str:
-        """
-        构建完整的 TOS 相对路径（不含桶名）
+        # 延迟初始化 client
+        self._client = None
 
-        Args:
-            session_uuid: 会话 UUID
-            sub_path: 子路径
-
-        Returns:
-            完整的相对路径，例：ai-3d-system/sessions/{uuid}/results/file.glb
-        """
-        return f"{self.base_path}/sessions/{session_uuid}/{sub_path}"
-
-    def _local_path(self, remote_path: str) -> str:
-        """
-        将 TOS 相对路径转为本地文件系统路径
-        """
-        return os.path.join(self.MOUNT_BASE, remote_path)
+    def _get_client(self):
+        """获取或创建 TOS client（延迟初始化）"""
+        if self._client is None:
+            self._client = tos.TosClientV2(
+                ak=self.access_key,
+                sk=self.secret_key,
+                endpoint=self.endpoint,
+                region=self.region,
+            )
+        return self._client
 
     def _validate_path(self, path: str) -> bool:
         """验证路径安全性"""
@@ -89,49 +85,22 @@ class StorageManager:
             return False
         return True
 
-    def _make_presign_url(self, object_path: str, expire_seconds: int = 86400) -> Optional[str]:
+    def build_tos_path(self, session_uuid: str, sub_path: str) -> str:
         """
-        使用 Volcengine SDK 生成 presign URL
+        构建完整的 TOS 相对路径（不含桶名）
+
+        Args:
+            session_uuid: 会话 UUID
+            sub_path: 子路径，例 results/file.glb
 
         Returns:
-            完整的 presign URL，失败时返回 None
+            完整的相对路径，例：ai-3d-system/sessions/{uuid}/results/file.glb
         """
-        if not self.access_key or not self.secret_key:
-            return None
-
-        try:
-            import sys
-            sys.path.insert(0, '/usr/local/lib/python3.12/dist-packages')
-            from volcengine.auth.SignerV4 import SignerV4
-            from volcengine.base.Request import Request
-
-            class Cred:
-                ak = self.access_key
-                sk = self.secret_key
-                service = 'tos'
-                region = 'cn-beijing'
-                session_token = ''
-
-            req = Request()
-            req.method = 'GET'
-            req.path = '/' + object_path
-            req.headers = {'Host': '4-ark-claw.tos-cn-beijing.volces.com'}
-            req.query = {}
-            req.body = b''
-
-            SignerV4.sign_url(req, Cred())
-
-            qs = '&'.join(
-                f"{k}={v}" for k, v in req.query.items()
-            )
-            return f"https://4-ark-claw.tos-cn-beijing.volces.com/{object_path}?{qs}"
-        except Exception as e:
-            print(f"[Storage] Presign failed: {e}")
-            return None
+        return f"{self.base_path}/sessions/{session_uuid}/{sub_path}"
 
     def upload(self, local_path: str, remote_path: str) -> Optional[str]:
         """
-        上传本地文件到 TOS（通过本地 mount 写入）
+        上传本地文件到 TOS（通过 put_object + 本地文件流）
 
         Args:
             local_path: 本地文件路径
@@ -143,39 +112,49 @@ class StorageManager:
         if not self._validate_path(remote_path):
             raise ValueError(f"Invalid remote path: {remote_path}")
 
-        dest = self._local_path(remote_path)
-        dest_dir = os.path.dirname(dest)
-
         try:
-            os.makedirs(dest_dir, exist_ok=True)
-            shutil.copy2(local_path, dest)
+            client = self._get_client()
+            with open(local_path, 'rb') as f:
+                content = f.read()
+            client.put_object(bucket=self.bucket, key=remote_path, content=content)
             return remote_path
+        except TosServerError as e:
+            print(f"[Storage] upload failed: [{e.status_code}] {e.code}")
+            return None
         except Exception as e:
-            print(f"[Storage] upload failed: {e}")
+            print(f"[Storage] upload failed: {type(e).__name__}: {e}")
             return None
 
     def download(self, remote_path: str, local_path: str) -> str:
         """
-        从 TOS 下载文件到本地（通过本地 mount 读取）
+        从 TOS 下载文件到本地（通过 get_object + 写入文件）
+
+        Args:
+            remote_path: TOS 相对路径
+            local_path: 本地保存路径
+
+        Returns:
+            本地保存路径（成功时）
         """
         if not self._validate_path(remote_path):
             raise ValueError(f"Invalid remote path: {remote_path}")
 
-        src = self._local_path(remote_path)
-        shutil.copy2(src, local_path)
+        client = self._get_client()
+        os.makedirs(os.path.dirname(local_path) or '.', exist_ok=True)
+        resp = client.get_object(bucket=self.bucket, key=remote_path)
+        data = resp.read()
+        with open(local_path, 'wb') as f:
+            f.write(data)
         return local_path
 
     def generate_share_url(self, remote_path: str,
                           expire_seconds: int = 86400) -> Optional[str]:
         """
-        生成公网可下载的 presign URL
-
-        优先使用 Volcengine SDK 生成带签名的临时下载链接，
-        如签名失败则降级返回原始公网 URL。
+        生成公网可下载的 presign URL（24小时有效期）
 
         Args:
             remote_path: TOS 相对路径
-            expire_seconds: 过期时间（秒）
+            expire_seconds: 过期时间（秒），默认 24 小时
 
         Returns:
             presign URL 或 None
@@ -183,16 +162,110 @@ class StorageManager:
         if not self._validate_path(remote_path):
             raise ValueError(f"Invalid remote path: {remote_path}")
 
-        presign = self._make_presign_url(remote_path, expire_seconds)
-        if presign:
-            return presign
-        # 降级: 返回原始 URL（可能不可公开访问）
-        return f"{self.public_base}/{remote_path}"
+        try:
+            client = self._get_client()
+            resp = client.pre_signed_url(
+                bucket=self.bucket,
+                key=remote_path,
+                expires=expire_seconds,
+                http_method=HttpMethodType.Http_Method_Get,
+            )
+            return resp.signed_url
+        except Exception as e:
+            print(f"[Storage] generate_share_url failed: {e}")
+            return None
+
+    def exists(self, remote_path: str) -> bool:
+        """检查 TOS 文件是否存在"""
+        if not self._validate_path(remote_path):
+            return False
+        try:
+            client = self._get_client()
+            client.head_object(bucket=self.bucket, key=remote_path)
+            return True
+        except TosServerError:
+            return False
+        except Exception:
+            return False
+
+    def delete(self, remote_path: str) -> bool:
+        """删除 TOS 文件"""
+        if not self._validate_path(remote_path):
+            return False
+        try:
+            client = self._get_client()
+            client.delete_object(bucket=self.bucket, key=remote_path)
+            return True
+        except Exception as e:
+            print(f"[Storage] delete failed: {e}")
+            return False
+
+    def list_objects(self, prefix: str, max_keys: int = 100) -> list:
+        """
+        列出 TOS 前缀下的对象
+
+        Args:
+            prefix: 对象前缀
+            max_keys: 最大返回数量
+
+        Returns:
+            对象 Key 列表
+        """
+        try:
+            client = self._get_client()
+            resp = client.list_objects(
+                bucket=self.bucket,
+                prefix=prefix,
+                max_keys=max_keys,
+            )
+            return [obj.key for obj in resp.contents]
+        except TosServerError as e:
+            print(f"[Storage] list_objects: [{e.status_code}] {e.code}")
+            return []
+        except Exception as e:
+            print(f"[Storage] list_objects failed: {e}")
+            return []
+
+    def read_content(self, remote_path: str) -> bytes:
+        """
+        直接读取 TOS 文件内容（适合小文件）
+
+        Args:
+            remote_path: TOS 相对路径
+
+        Returns:
+            文件内容 bytes
+        """
+        if not self._validate_path(remote_path):
+            raise ValueError(f"Invalid remote path: {remote_path}")
+        client = self._get_client()
+        resp = client.get_object(bucket=self.bucket, key=remote_path)
+        return resp.read()
+
+    def write_content(self, remote_path: str, content: bytes) -> bool:
+        """
+        直接写入内容到 TOS（适合小文件）
+
+        Args:
+            remote_path: TOS 相对路径
+            content: 文件内容 bytes
+
+        Returns:
+            True 成功，False 失败
+        """
+        if not self._validate_path(remote_path):
+            raise ValueError(f"Invalid remote path: {remote_path}")
+        try:
+            client = self._get_client()
+            client.put_object(bucket=self.bucket, key=remote_path, content=content)
+            return True
+        except Exception as e:
+            print(f"[Storage] write_content failed: {e}")
+            return False
 
     def transliterate_path(self, name: str) -> str:
         """将包含中文的名称转为拼音 slug，用于文件路径"""
         slug = _to_pinyin_slug(name)
-        # 清理多余横杠
         while '--' in slug:
             slug = slug.replace('--', '-')
         return slug.strip('-')
@@ -241,7 +314,9 @@ class StorageManager:
             tos_path = self.build_tos_path(session_uuid, tos_sub_path)
 
             # 3. 上传到 TOS
-            self.upload(tmp_path, tos_path)
+            uploaded = self.upload(tmp_path, tos_path)
+            if not uploaded:
+                raise RuntimeError(f"TOS upload failed for {tos_path}")
 
             # 4. 生成 presign URL
             share_url = self.generate_share_url(tos_path)
